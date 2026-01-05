@@ -54,46 +54,44 @@
 - ✅ **用户体验**：提供配置教程链接，不再误导用户认为 auggie 不支持 Prompt 增强
 </details>
 
-### v1.3.0 - MCP 动态选择系统 ⭐
+<details>
+<summary>v1.3.0 - MCP 动态选择系统 (2026-01-05)</summary>
+
 - ✅ **多 MCP 支持**：安装时可选 ace-tool（开箱即用Prompt增强+代码检索）或 auggie（官方原版，代码检索+可选Prompt增强）
 - ✅ **交互式选择**：友好的 MCP 选择界面，对比功能差异，支持跳过安装
 - ✅ **配置驱动**：生成 `~/.ccg/config.toml`，记录工具映射和参数名
 - ✅ **自包含模板**：命令模板减少 50% 提示词长度，直接读取配置无需外部文档
 - ✅ **完全兼容**：12个命令模板（dev, code, frontend, backend, review, analyze, enhance 等）支持动态 MCP 工具调用
 - ✅ **灵活配置**：auggie 可通过配置支持 Prompt 增强（参考 [配置教程](https://linux.do/t/topic/1280612)）
+</details>
+
+<details>
+<summary>查看历史版本 (v1.0.0 - v1.2.3)</summary>
 
 ### v1.2.3 - 安装体验优化
-- ✅ **二进制验证**：安装后自动验证 `codeagent-wrapper` 可用性
-- ✅ **错误显示**：安装失败时显示详细错误信息和解决方案
-- ✅ **文档清理**：删除过时提示，优化用户体验
+- 安装后自动验证 `codeagent-wrapper` 可用性
+- 安装失败时显示详细错误信息和解决方案
 
-### v1.2.0 - ROLE_FILE 动态注入 ⭐
-- ✅ **真正的动态注入**：`codeagent-wrapper` 自动识别 `ROLE_FILE:` 指令
-- ✅ **0 token 消耗**：Claude 无需先用 Read 工具读取提示词文件
-- ✅ **自动化管理**：一行 `ROLE_FILE:` 搞定，无需手动粘贴
-- ✅ **完整日志**：注入过程可追溯（文件路径、大小）
+### v1.2.0 - ROLE_FILE 动态注入
+- `codeagent-wrapper` 自动识别 `ROLE_FILE:` 指令
+- 专家提示词零 token 消耗，不占用主会话
 
 ### v1.1.3 - PATH 自动配置
-- ✅ **Mac/Linux**：自动添加到 `.zshrc` / `.bashrc`
-- ✅ **Windows**：详细手动配置指南 + PowerShell 一键命令
-- ✅ **智能检测**：避免重复配置
-- ✅ **开箱即用**：安装后直接可用 `codeagent-wrapper`
+- Mac/Linux 自动添加到 shell 配置文件
+- Windows 提供 PowerShell 一键命令
 
 ### v1.1.0 - 智能更新系统
-- ✅ **一键更新**：`npx ccg-workflow` 选择"更新工作流"
-- ✅ **自动版本检测**：自动对比当前版本与 npm 最新版本
-- ✅ **增量更新**：仅更新命令模板和提示词，保留用户配置
-- ✅ **强制修复**：支持强制重装，修复损坏的文件
-- ✅ **零权限**：无需 sudo，无需全局安装
+- 一键更新，无需卸载重装
+- 保留用户配置和 MCP 设置
 
 ### v1.0.0 - npm 首次发布
-- ✅ 从 Python 脚本重构为 **TypeScript + unbuild** 构建系统
-- ✅ 发布到 npm: **`npx ccg-workflow`** 一键安装
-- ✅ 交互式配置菜单（初始化/更新/卸载）
-- ✅ **三 CLI 协作**：Claude + Codex + Gemini
-- ✅ **18个专家提示词**：Codex 6个 + Gemini 6个 + Claude 6个
-- ✅ 配置文件从 `config.json` 迁移到 `~/.ccg/config.toml`
-- ✅ 支持 **smart/parallel/sequential** 三种协作模式
+- `npx ccg-workflow` 一键安装
+- 三模型协作（Claude + Codex + Gemini）
+- 18 个专家提示词
+
+**完整变更记录**: [CHANGELOG.md](https://github.com/fengshao1227/ccg-workflow/blob/main/CHANGELOG.md)
+
+</details>
 
 ---
 
