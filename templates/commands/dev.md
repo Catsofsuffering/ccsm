@@ -87,9 +87,27 @@ strategy = "parallel"
 
 **根据配置并行调用模型进行分析**（使用 `run_in_background: true` 非阻塞执行）：
 
+**调用方式**: 使用 `Bash` 工具调用 `codeagent-wrapper`（不要使用 `/collaborating-with-codex` 或 `/collaborating-with-gemini`）
+
+```bash
+# 后端模型分析示例
+codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
+<ROLE>
+{{读取 ~/.claude/prompts/ccg/codex/analyzer.md 内容}}
+</ROLE>
+
+<TASK>
+分析需求: {{增强后的需求}}
+Context: {{从 ace-tool 获取的代码上下文}}
+</TASK>
+
+OUTPUT: Structured analysis/diagnostic report.
+EOF
+```
+
 根据 `routing.backend.models` 和 `routing.frontend.models` 动态生成调用：
-- **后端模型**: 使用 `analyzer` 角色，输出实现方案
-- **前端模型**: 使用 `analyzer` 角色，输出实现方案
+- **后端模型**: 使用 Bash 调用 `codeagent-wrapper --backend codex/gemini/claude` + `analyzer` 角色
+- **前端模型**: 使用 Bash 调用 `codeagent-wrapper --backend gemini/codex/claude` + `analyzer` 角色
 
 然后使用 `TaskOutput` 获取所有任务的结果，交叉验证后综合方案。
 
@@ -99,10 +117,28 @@ strategy = "parallel"
 
 **三模型并行生成原型**（使用 `run_in_background: true`）：
 
+**调用方式**: 使用 `Bash` 工具调用 `codeagent-wrapper`
+
+```bash
+# Codex 后端原型示例
+codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
+<ROLE>
+{{读取 ~/.claude/prompts/ccg/codex/architect.md 内容}}
+</ROLE>
+
+<TASK>
+生成原型: {{功能需求}}
+Context: {{相关代码}}
+</TASK>
+
+OUTPUT: Unified Diff Patch ONLY. Strictly prohibit any actual modifications.
+EOF
+```
+
 根据 `routing.prototype.models` 配置，同时调用三个模型：
-- **Codex** + `architect` 角色 → 后端架构视角的原型
-- **Gemini** + `frontend` 角色 → 前端 UI 视角的原型
-- **Claude** + `architect` 角色 → 全栈整合视角的原型
+- **Codex**: `codeagent-wrapper --backend codex` + `architect` 角色 → 后端架构视角的原型
+- **Gemini**: `codeagent-wrapper --backend gemini` + `frontend` 角色 → 前端 UI 视角的原型
+- **Claude**: `codeagent-wrapper --backend claude` + `architect` 角色 → 全栈整合视角的原型
 
 输出: `Unified Diff Patch ONLY`
 
@@ -128,10 +164,27 @@ strategy = "parallel"
 
 **三模型并行代码审查**（使用 `run_in_background: true`）：
 
+**调用方式**: 使用 `Bash` 工具调用 `codeagent-wrapper`
+
+```bash
+# Codex 代码审查示例
+codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
+<ROLE>
+{{读取 ~/.claude/prompts/ccg/codex/reviewer.md 内容}}
+</ROLE>
+
+<TASK>
+审查代码: {{实施的代码变更}}
+</TASK>
+
+OUTPUT: Review comments only. No code modifications.
+EOF
+```
+
 根据 `routing.review.models` 配置调用所有模型：
-- **Codex** + `reviewer` 角色 → 安全性、性能、错误处理
-- **Gemini** + `reviewer` 角色 → 可访问性、响应式设计、设计一致性
-- **Claude** + `reviewer` 角色 → 集成正确性、契约一致性、可维护性
+- **Codex**: `codeagent-wrapper --backend codex` + `reviewer` 角色 → 安全性、性能、错误处理
+- **Gemini**: `codeagent-wrapper --backend gemini` + `reviewer` 角色 → 可访问性、响应式设计、设计一致性
+- **Claude**: `codeagent-wrapper --backend claude` + `reviewer` 角色 → 集成正确性、契约一致性、可维护性
 
 输出: `Review comments only`
 

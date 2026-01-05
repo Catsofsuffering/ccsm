@@ -34,6 +34,8 @@ strategy = "parallel"
 
 ## 调用语法模板
 
+**⚠️ 重要**: 使用 `Bash` 工具调用 `codeagent-wrapper`，**不要**使用 `/collaborating-with-codex` 或 `/collaborating-with-gemini` 等旧的 Skill 方式！
+
 ### 基础模式
 ```bash
 codeagent-wrapper --backend <MODEL> - $PROJECT_DIR <<'EOF'
