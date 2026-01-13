@@ -64,12 +64,12 @@ EOF",
 
 `[模式：诊断]`
 
-**⚠️ 必须并行调用 Codex 和 Gemini**（参照上方调用规范，使用 `run_in_background: true`）：
+**⚠️ 必须发起两个并行 Bash 调用**（参照上方调用规范）：
 
-| 模型 | 需求 | OUTPUT |
-|------|------|--------|
-| **Codex** | 诊断问题（$ARGUMENTS） | 诊断假设（按可能性排序），每个假设包含原因、证据、修复建议 |
-| **Gemini** | 诊断问题（$ARGUMENTS） | 诊断假设（按可能性排序），每个假设包含原因、证据、修复建议 |
+1. **Codex 后端诊断**：`Bash({ command: "...--backend codex...", run_in_background: true })`
+2. **Gemini 前端诊断**：`Bash({ command: "...--backend gemini...", run_in_background: true })`
+
+两个调用的 OUTPUT 都是：诊断假设（按可能性排序），每个假设包含原因、证据、修复建议
 
 用 `TaskOutput` 等待两个模型的诊断结果。**必须等所有模型返回后才能进入下一阶段**。
 

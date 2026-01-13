@@ -85,11 +85,14 @@ EOF",
 
 **⚠️ 根据代码类型必须调用对应模型**（参照上方调用规范）：
 
-| 代码类型 | 调用模型 | OUTPUT |
-|----------|----------|--------|
-| **后端** | Codex | 完整测试代码（使用项目现有测试框架，覆盖正常路径、边界条件、异常处理） |
-| **前端** | Gemini | 完整测试代码（使用项目现有测试框架，覆盖正常路径、边界条件、异常处理） |
-| **全栈** | 并行调用两者（`run_in_background: true`） | 后端 + 前端测试代码 |
+- **后端代码** → `Bash({ command: "...--backend codex...", run_in_background: false })`
+- **前端代码** → `Bash({ command: "...--backend gemini...", run_in_background: false })`
+- **全栈代码** → 并行调用两者：
+  1. `Bash({ command: "...--backend codex...", run_in_background: true })`
+  2. `Bash({ command: "...--backend gemini...", run_in_background: true })`
+  用 `TaskOutput` 等待结果
+
+OUTPUT：完整测试代码（使用项目现有测试框架，覆盖正常路径、边界条件、异常处理）
 
 **必须等所有模型返回后才能进入下一阶段**。
 

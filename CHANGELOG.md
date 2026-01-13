@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.20] - 2026-01-13
+
+### 🐛 Bug 修复
+
+**修复并行调用指令不清晰导致 Claude 不使用 run_in_background**
+
+v1.7.19 的表格格式精简过度，导致 Claude 无法理解需要发起并行 Bash 调用。
+
+**修复方案**：将表格格式改为明确的调用指令格式：
+```
+1. **Codex 后端诊断**：`Bash({ command: "...--backend codex...", run_in_background: true })`
+2. **Gemini 前端诊断**：`Bash({ command: "...--backend gemini...", run_in_background: true })`
+```
+
+**修改文件**：
+- `templates/commands/debug.md`
+- `templates/commands/optimize.md`
+- `templates/commands/review.md`
+- `templates/commands/analyze.md`
+- `templates/commands/test.md`
+
+---
+
 ## [1.7.19] - 2026-01-13
 
 ### 📝 文档优化

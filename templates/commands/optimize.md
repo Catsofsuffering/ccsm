@@ -70,12 +70,15 @@ EOF",
 
 `[模式：分析]`
 
-**⚠️ 必须并行调用 Codex 和 Gemini**（参照上方调用规范，使用 `run_in_background: true`）：
+**⚠️ 必须发起两个并行 Bash 调用**（参照上方调用规范）：
 
-| 模型 | 需求 | OUTPUT |
-|------|------|--------|
-| **Codex** | 分析后端性能问题（$ARGUMENTS） | 性能瓶颈列表、优化方案、预期收益 |
-| **Gemini** | 分析前端性能问题（Core Web Vitals）（$ARGUMENTS） | 性能瓶颈列表、优化方案、预期收益 |
+1. **Codex 后端分析**：`Bash({ command: "...--backend codex...", run_in_background: true })`
+   - 需求：分析后端性能问题（$ARGUMENTS）
+   - OUTPUT：性能瓶颈列表、优化方案、预期收益
+
+2. **Gemini 前端分析**：`Bash({ command: "...--backend gemini...", run_in_background: true })`
+   - 需求：分析前端性能问题（Core Web Vitals）
+   - OUTPUT：性能瓶颈列表、优化方案、预期收益
 
 用 `TaskOutput` 等待两个模型的完整结果。**必须等所有模型返回后才能进入下一阶段**。
 

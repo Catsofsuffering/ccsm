@@ -73,12 +73,15 @@ EOF",
 
 `[模式：分析]`
 
-**⚠️ 必须并行调用 Codex 和 Gemini**（参照上方调用规范，使用 `run_in_background: true`）：
+**⚠️ 必须发起两个并行 Bash 调用**（参照上方调用规范）：
 
-| 模型 | ROLE_FILE | OUTPUT |
-|------|-----------|--------|
-| **Codex** | `~/.claude/.ccg/prompts/codex/analyzer.md` | 技术可行性、架构影响、性能考量 |
-| **Gemini** | `~/.claude/.ccg/prompts/gemini/analyzer.md` | UI/UX 影响、用户体验、视觉设计考量 |
+1. **Codex 后端分析**：`Bash({ command: "...--backend codex...", run_in_background: true })`
+   - ROLE_FILE: `~/.claude/.ccg/prompts/codex/analyzer.md`
+   - OUTPUT：技术可行性、架构影响、性能考量
+
+2. **Gemini 前端分析**：`Bash({ command: "...--backend gemini...", run_in_background: true })`
+   - ROLE_FILE: `~/.claude/.ccg/prompts/gemini/analyzer.md`
+   - OUTPUT：UI/UX 影响、用户体验、视觉设计考量
 
 用 `TaskOutput` 等待两个模型的完整结果。**必须等所有模型返回后才能进入下一阶段**。
 

@@ -56,12 +56,15 @@ EOF",
 
 `[模式：审查]`
 
-**⚠️ 必须并行调用 Codex 和 Gemini**（参照上方调用规范，使用 `run_in_background: true`）：
+**⚠️ 必须发起两个并行 Bash 调用**（参照上方调用规范）：
 
-| 模型 | 需求 | OUTPUT |
-|------|------|--------|
-| **Codex** | 审查代码变更（git diff 内容） | 按 Critical/Major/Minor/Suggestion 分类列出安全性、性能、错误处理问题 |
-| **Gemini** | 审查代码变更（git diff 内容） | 按 Critical/Major/Minor/Suggestion 分类列出可访问性、响应式、设计一致性问题 |
+1. **Codex 后端审查**：`Bash({ command: "...--backend codex...", run_in_background: true })`
+   - 需求：审查代码变更（git diff 内容）
+   - OUTPUT：按 Critical/Major/Minor/Suggestion 分类列出安全性、性能、错误处理问题
+
+2. **Gemini 前端审查**：`Bash({ command: "...--backend gemini...", run_in_background: true })`
+   - 需求：审查代码变更（git diff 内容）
+   - OUTPUT：按 Critical/Major/Minor/Suggestion 分类列出可访问性、响应式、设计一致性问题
 
 用 `TaskOutput` 等待两个模型的审查结果。**必须等所有模型返回后才能进入下一阶段**。
 
