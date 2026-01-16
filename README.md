@@ -25,6 +25,8 @@ npx ccg-workflow
 | 命令 | 说明 |
 |------|------|
 | `/ccg:workflow` | 6 阶段完整工作流 |
+| `/ccg:plan` | 多模型协作规划 (Phase 1-2) |
+| `/ccg:execute` | 多模型协作执行 (Phase 3-5) |
 | `/ccg:feat` | 新功能开发 |
 | `/ccg:frontend` | 前端任务 (Gemini) |
 | `/ccg:backend` | 后端任务 (Codex) |
@@ -39,6 +41,21 @@ npx ccg-workflow
 | `/ccg:worktree` | Worktree 管理 |
 | `/ccg:init` | 初始化 CLAUDE.md |
 | `/ccg:enhance` | Prompt 增强 |
+
+### 规划与执行分离
+
+v1.7.39 新增 `/ccg:plan` 和 `/ccg:execute` 命令，将规划与执行解耦：
+
+```bash
+# 1. 生成实施计划
+/ccg:plan 实现用户认证功能
+
+# 2. 审查计划（可修改）
+# 计划保存至 .claude/plan/user-auth.md
+
+# 3. 执行计划（新会话也可执行）
+/ccg:execute .claude/plan/user-auth.md
+```
 
 ## 配置
 
@@ -136,4 +153,4 @@ MIT
 
 ---
 
-v1.7.24 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues)
+v1.7.39 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues)

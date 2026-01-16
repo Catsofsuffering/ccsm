@@ -23,9 +23,11 @@ function findPackageRoot(startDir: string): string {
 
 const PACKAGE_ROOT = findPackageRoot(__dirname)
 
-// All available commands (14 total after cleanup)
+// All available commands (16 total after adding plan/execute)
 const ALL_COMMANDS = [
   'workflow', // 完整6阶段开发工作流
+  'plan', // 多模型协作规划（Phase 1-2）
+  'execute', // 多模型协作执行（Phase 3-5）
   'frontend', // 前端专项（Gemini主导）
   'backend', // 后端专项（Codex主导）
   'feat', // 智能功能开发
@@ -53,6 +55,28 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
     order: 1,
     description: '完整6阶段开发工作流（研究→构思→计划→执行→优化→评审）',
     descriptionEn: 'Full 6-phase development workflow',
+  },
+  {
+    id: 'plan',
+    name: '多模型协作规划',
+    nameEn: 'Multi-Model Planning',
+    category: 'development',
+    commands: ['plan'],
+    defaultSelected: true,
+    order: 1.5,
+    description: '上下文检索 + 双模型分析 → 生成 Step-by-step 实施计划',
+    descriptionEn: 'Context retrieval + dual-model analysis → Step-by-step plan',
+  },
+  {
+    id: 'execute',
+    name: '多模型协作执行',
+    nameEn: 'Multi-Model Execution',
+    category: 'development',
+    commands: ['execute'],
+    defaultSelected: true,
+    order: 1.6,
+    description: '根据计划获取原型 → Claude 重构实施 → 多模型审计交付',
+    descriptionEn: 'Get prototype from plan → Claude refactor → Multi-model audit',
   },
   {
     id: 'frontend',
@@ -234,8 +258,8 @@ export const WORKFLOW_PRESETS = {
   full: {
     name: '完整',
     nameEn: 'Full',
-    description: '全部命令（15个）',
-    descriptionEn: 'All commands (15)',
+    description: '全部命令（17个）',
+    descriptionEn: 'All commands (17)',
     workflows: WORKFLOW_CONFIGS.map(w => w.id),
   },
 }
