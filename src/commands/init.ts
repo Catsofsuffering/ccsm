@@ -176,7 +176,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
   console.log()
   console.log(`  ${ansis.cyan('模型路由')}  ${ansis.green('Gemini')} (前端) + ${ansis.blue('Codex')} (后端)`)
   console.log(`  ${ansis.cyan('命令数量')}  ${ansis.yellow(selectedWorkflows.length.toString())} 个`)
-  console.log(`  ${ansis.cyan('MCP 工具')}  ${mcpProvider === 'ace-tool' ? (aceToolToken ? ansis.green('ace-tool') : ansis.yellow('ace-tool (待配置)')) : ansis.gray('跳过')}`)
+  console.log(`  ${ansis.cyan('MCP 工具')}  ${(mcpProvider === 'ace-tool' || mcpProvider === 'ace-tool-rs') ? (aceToolToken ? ansis.green(mcpProvider) : ansis.yellow(`${mcpProvider} (待配置)`)) : ansis.gray('跳过')}`)
   console.log(`  ${ansis.cyan('Web UI')}    ${liteMode ? ansis.gray('禁用') : ansis.green('启用')}`)
   console.log(ansis.yellow('━'.repeat(50)))
   console.log()
@@ -386,7 +386,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
     }
 
     // Show MCP resources if user skipped installation
-    if (mcpProvider === 'skip' || (mcpProvider === 'ace-tool' && !aceToolToken)) {
+    if (mcpProvider === 'skip' || ((mcpProvider === 'ace-tool' || mcpProvider === 'ace-tool-rs') && !aceToolToken)) {
       console.log()
       console.log(ansis.cyan.bold(`  📖 MCP 服务选项`))
       console.log()

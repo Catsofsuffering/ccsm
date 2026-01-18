@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.44] - 2026-01-18
+
+### 🐛 Bug 修复
+
+**修复 ace-tool-rs 安装时显示"跳过"的问题**
+
+- **问题**: 选择 ace-tool-rs 并输入 Token 后，安装摘要仍显示"MCP工具跳过"
+- **根本原因**:
+  - Line 179: 显示摘要的条件判断遗漏 `ace-tool-rs`，只检查 `mcpProvider === 'ace-tool'`
+  - Line 389: MCP 资源提示的条件判断也有同样问题
+- **修复**:
+  - 统一为 `(mcpProvider === 'ace-tool' || mcpProvider === 'ace-tool-rs')`
+  - 显示时动态使用 `mcpProvider` 变量，正确显示 `ace-tool` 或 `ace-tool-rs`
+- **影响**:
+  - ✅ ace-tool-rs 用户可以看到正确的安装状态
+  - ✅ Token 配置成功时显示绿色"ace-tool-rs"
+  - ✅ 跳过 Token 配置时显示黄色"ace-tool-rs (待配置)"
+  - ✅ 真正跳过时才显示灰色"跳过"
+
+**感谢 @用户 发现并报告此问题！**
+
+---
+
 ## [1.7.41] - 2026-01-18
 
 ### 🐛 Bug 修复
