@@ -48,6 +48,10 @@ npx ccg-workflow
 | `/ccg:spec-plan` | 约束 → 零决策计划 |
 | `/ccg:spec-impl` | 按计划执行 + 归档 |
 | `/ccg:spec-review` | 双模型交叉审查 |
+| `/ccg:team-research` | Agent Teams 需求 → 约束集 |
+| `/ccg:team-plan` | Agent Teams 约束 → 并行计划 |
+| `/ccg:team-exec` | Agent Teams 并行实施 |
+| `/ccg:team-review` | Agent Teams 双模型审查 |
 
 ### OPSX 规范驱动（v1.7.52+）
 
@@ -71,6 +75,28 @@ npx ccg-workflow
 ```
 
 **说明**：`/ccg:spec-*` 命令是 CCG 对 OPSX 的封装，内部调用 `/opsx:*` 命令。每阶段之间可 `/clear`，状态存在 `openspec/` 目录，不怕上下文爆。
+
+### Agent Teams 并行实施（v1.7.60+）
+
+利用 Claude Code Agent Teams 实验特性，spawn 多个 Builder teammates 并行写代码：
+
+```bash
+# 1. 需求研究 → 约束集（复杂项目推荐，简单项目可跳过）
+/ccg:team-research 实现实时协作看板 API
+
+# 2. /clear 后规划 → 零决策并行计划
+/ccg:team-plan kanban-api
+
+# 3. /clear 后并行实施 → Builder teammates 并行写代码
+/ccg:team-exec
+
+# 4. /clear 后审查 → 双模型交叉审查
+/ccg:team-review
+```
+
+**前置条件**：需手动启用 Agent Teams（`settings.json` 中设置 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）
+
+**vs 传统工作流**：Team 系列每步 `/clear` 隔离上下文，通过文件传递状态。Builder 并行实施，适合可拆分为 3+ 独立模块的任务。
 
 ### 规划与执行分离
 
@@ -211,4 +237,4 @@ MIT
 
 ---
 
-v1.7.57 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues)
+v1.7.60 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues)

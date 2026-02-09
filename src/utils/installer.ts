@@ -46,6 +46,10 @@ const ALL_COMMANDS = [
   'spec-plan', // 多模型分析 → 零决策计划
   'spec-impl', // 多模型协作实现
   'spec-review', // 归档前多模型审查
+  'team-research', // Agent Teams 需求研究（并行探索 → 约束集）
+  'team-plan', // Agent Teams 规划（Lead 调 Codex/Gemini 产出并行计划）
+  'team-exec', // Agent Teams 并行实施（spawn Builders 并行写代码）
+  'team-review', // Agent Teams 审查（双模型交叉审查并行产出）
 ] as const
 
 // Workflow configurations (for compatibility with existing code)
@@ -291,6 +295,50 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
     order: 34,
     description: '双模型交叉审查 → Critical 必须修复 → 允许归档',
     descriptionEn: 'Multi-model compliance review before archiving',
+  },
+  {
+    id: 'team-research',
+    name: 'Agent Teams 需求研究',
+    nameEn: 'Agent Teams Research',
+    category: 'development',
+    commands: ['team-research'],
+    defaultSelected: true,
+    order: 1.8,
+    description: '并行探索代码库，产出约束集 + 可验证成功判据',
+    descriptionEn: 'Parallel codebase exploration, produces constraint sets + success criteria',
+  },
+  {
+    id: 'team-plan',
+    name: 'Agent Teams 规划',
+    nameEn: 'Agent Teams Planning',
+    category: 'development',
+    commands: ['team-plan'],
+    defaultSelected: true,
+    order: 2,
+    description: 'Lead 调用 Codex/Gemini 并行分析，产出零决策并行实施计划',
+    descriptionEn: 'Lead orchestrates Codex/Gemini analysis, produces zero-decision parallel plan',
+  },
+  {
+    id: 'team-exec',
+    name: 'Agent Teams 并行实施',
+    nameEn: 'Agent Teams Parallel Execution',
+    category: 'development',
+    commands: ['team-exec'],
+    defaultSelected: true,
+    order: 2.5,
+    description: '读取计划文件，spawn Builder teammates 并行写代码，需启用 Agent Teams',
+    descriptionEn: 'Read plan file, spawn Builder teammates for parallel implementation',
+  },
+  {
+    id: 'team-review',
+    name: 'Agent Teams 审查',
+    nameEn: 'Agent Teams Review',
+    category: 'development',
+    commands: ['team-review'],
+    defaultSelected: true,
+    order: 3,
+    description: '双模型交叉审查并行实施产出，分级处理 Critical/Warning/Info',
+    descriptionEn: 'Dual-model cross-review with severity classification',
   },
 ]
 
