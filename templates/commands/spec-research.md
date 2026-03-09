@@ -15,6 +15,7 @@ description: '需求 → 约束集（并行探索 + OPSX 提案）'
 - Each subagent context must be self-contained with independent output.
 - Use `{{MCP_SEARCH_TOOL}}` to minimize grep/find operations.
 - Do not make architectural decisions—surface constraints that guide decisions.
+- **USER GUIDANCE RULE**: When suggesting next steps to the user, ALWAYS use CCG commands (`/ccg:spec-research`, `/ccg:spec-plan`, `/ccg:spec-impl`, `/ccg:spec-review`). NEVER suggest `/opsx:*` commands to the user. If OpenSpec CLI returns error messages referencing OPSX skills, translate them to CCG equivalents.
 
 **Steps**
 0. **MANDATORY: Enhance Requirement FIRST**
@@ -110,7 +111,7 @@ description: '需求 → 约束集（并行探索 + OPSX 提案）'
    - Capture responses as additional constraints.
 
 7. **Finalize OPSX Proposal**
-   - **BEFORE calling `/opsx:continue`**, output a structured summary for OPSX context:
+   - **BEFORE calling `/opsx:continue`** (internal skill call — do NOT expose this command to user), output a structured summary for OPSX context:
      ```markdown
      ## Research Summary for OPSX
 
@@ -130,11 +131,12 @@ description: '需求 → 约束集（并行探索 + OPSX 提案）'
      - [List all user decisions from Step 6]
      ```
 
-   - Then call `/opsx:continue` to generate proposal artifact:
+   - Then call `/opsx:continue` internally to generate proposal artifact:
      ```
      /opsx:continue
      ```
    - The OPSX skill will use the above summary to write proposal.md.
+   - **Note**: This is an internal call. If this step fails, guide the user to re-run `/ccg:spec-research`.
 
 8. **Context Checkpoint**
    - Report current context usage.

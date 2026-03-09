@@ -13,6 +13,8 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
 - Multi-model collaboration is **mandatory**: use both Codex and Gemini.
 - If constraints cannot be fully specified, escalate to user or return to research phase.
 - Refer to `openspec/config.yaml` for project conventions.
+- **USER GUIDANCE RULE**: When suggesting next steps to the user, ALWAYS use CCG commands (`/ccg:spec-research`, `/ccg:spec-plan`, `/ccg:spec-impl`, `/ccg:spec-review`). NEVER suggest `/opsx:*` commands to the user. If OpenSpec CLI returns error messages referencing OPSX skills, translate them to CCG equivalents.
+- **TASKS FORMAT RULE**: When generating or modifying `tasks.md`, ALL tasks MUST use checkbox format (`- [ ] X.Y description`). Heading+bullet format will cause OpenSpec CLI to parse 0 tasks and block the workflow.
 
 **Steps**
 1. **Select Change**
@@ -84,7 +86,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    - **Bounds**: Value ranges, size limits, rate constraints
 
 5. **Update OPSX Artifacts**
-   - **BEFORE calling `/opsx:continue`**, output a structured summary for OPSX context:
+   - **BEFORE calling `/opsx:continue`** (internal skill call — do NOT expose this command to user), output a structured summary for OPSX context:
      ```markdown
      ## Planning Summary for OPSX
 
@@ -106,11 +108,12 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
      - [High-level task breakdown ready for tasks.md]
      ```
 
-   - Then call `/opsx:continue` to generate next artifacts:
+   - Then call `/opsx:continue` internally to generate next artifacts:
      ```
      /opsx:continue
      ```
    - The OPSX skill will use the above summary to create specs.md, design.md, and tasks.md.
+   - **Note**: This is an internal call. If this step fails, guide the user to re-run `/ccg:spec-plan`.
 
 6. **Context Checkpoint**
    - Report current context usage.

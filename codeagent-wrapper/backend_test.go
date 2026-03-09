@@ -64,9 +64,19 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 }
 
 func TestClaudeBuildArgs_GeminiAndCodexModes(t *testing.T) {
-	t.Run("gemini new mode defaults workdir", func(t *testing.T) {
+	t.Run("gemini new mode passes workdir via include-directories", func(t *testing.T) {
 		backend := GeminiBackend{}
 		cfg := &Config{Mode: "new", WorkDir: "/workspace"}
+		got := backend.BuildArgs(cfg, "task")
+		want := []string{"-o", "stream-json", "-y", "--include-directories", "/workspace", "-p", "task"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("gemini new mode without workdir omits include-directories", func(t *testing.T) {
+		backend := GeminiBackend{}
+		cfg := &Config{Mode: "new"}
 		got := backend.BuildArgs(cfg, "task")
 		want := []string{"-o", "stream-json", "-y", "-p", "task"}
 		if !reflect.DeepEqual(got, want) {
@@ -74,9 +84,9 @@ func TestClaudeBuildArgs_GeminiAndCodexModes(t *testing.T) {
 		}
 	})
 
-	t.Run("gemini resume mode uses session id", func(t *testing.T) {
+	t.Run("gemini resume mode uses session id without include-directories", func(t *testing.T) {
 		backend := GeminiBackend{}
-		cfg := &Config{Mode: "resume", SessionID: "sid-999"}
+		cfg := &Config{Mode: "resume", SessionID: "sid-999", WorkDir: "/workspace"}
 		got := backend.BuildArgs(cfg, "resume")
 		want := []string{"-o", "stream-json", "-y", "-r", "sid-999", "-p", "resume"}
 		if !reflect.DeepEqual(got, want) {
@@ -101,29 +111,25 @@ func TestClaudeBuildArgs_GeminiAndCodexModes(t *testing.T) {
 		}
 	})
 
-	t.Run("codex build args omits bypass flag by default", func(t *testing.T) {
-		const key = "CODEX_BYPASS_SANDBOX"
-		t.Cleanup(func() { os.Unsetenv(key) })
-		os.Unsetenv(key)
-
-		backend := CodexBackend{}
-		cfg := &Config{Mode: "new", WorkDir: "/tmp"}
-		got := backend.BuildArgs(cfg, "task")
-		want := []string{"e", "--skip-git-repo-check", "-C", "/tmp", "--json", "task"}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-	})
-
-	t.Run("codex build args includes bypass flag when enabled", func(t *testing.T) {
-		const key = "CODEX_BYPASS_SANDBOX"
-		t.Cleanup(func() { os.Unsetenv(key) })
-		os.Setenv(key, "true")
+	t.Run("codex build args includes bypass by default (CODEX_REQUIRE_APPROVAL unset)", func(t *testing.T) {
+		t.Setenv("CODEX_REQUIRE_APPROVAL", "")
 
 		backend := CodexBackend{}
 		cfg := &Config{Mode: "new", WorkDir: "/tmp"}
 		got := backend.BuildArgs(cfg, "task")
 		want := []string{"e", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", "/tmp", "--json", "task"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("codex build args omits bypass when CODEX_REQUIRE_APPROVAL=true", func(t *testing.T) {
+		t.Setenv("CODEX_REQUIRE_APPROVAL", "true")
+
+		backend := CodexBackend{}
+		cfg := &Config{Mode: "new", WorkDir: "/tmp"}
+		got := backend.BuildArgs(cfg, "task")
+		want := []string{"e", "--skip-git-repo-check", "-C", "/tmp", "--json", "task"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}

@@ -13,6 +13,8 @@ description: '按规范执行 + 多模型协作 + 归档'
 - **MANDATORY**: Request `unified diff patch` format from external models; they have zero write permission.
 - Keep implementation strictly within `tasks.md` scope—no scope creep.
 - Refer to `openspec/config.yaml` for conventions.
+- **USER GUIDANCE RULE**: When suggesting next steps to the user, ALWAYS use CCG commands (`/ccg:spec-research`, `/ccg:spec-plan`, `/ccg:spec-impl`, `/ccg:spec-review`). NEVER suggest `/opsx:*` commands to the user. If OpenSpec CLI returns error messages referencing OPSX skills, translate them to CCG equivalents.
+- **TASKS FORMAT RULE**: When generating or modifying `tasks.md`, ALL tasks MUST use checkbox format (`- [ ] X.Y description`). Heading+bullet format will cause OpenSpec CLI to parse 0 tasks and block the workflow.
 
 **Steps**
 1. **Select Change**
@@ -21,11 +23,12 @@ description: '按规范执行 + 多模型协作 + 归档'
    - Run `openspec status --change "<change_id>" --json` to review tasks.
 
 2. **Apply OPSX Change**
-   - Call `/opsx:apply` to enter implementation mode:
+   - Call `/opsx:apply` internally to enter implementation mode:
      ```
      /opsx:apply
      ```
    - This will load the change context and guide you through the tasks defined in `tasks.md`.
+   - **Note**: This is an internal call. If this step fails, guide the user to re-run `/ccg:spec-impl`.
 
 3. **Identify Minimal Verifiable Phase**
    - Review `tasks.md` and identify the **smallest verifiable phase**.
@@ -112,11 +115,12 @@ description: '按规范执行 + 多模型协作 + 归档'
 
 10. **Archive on Completion**
     - When ALL tasks in `tasks.md` are marked `[x]`:
-    - Call `/opsx:archive` to archive the change:
+    - Call `/opsx:archive` internally to archive the change:
       ```
       /opsx:archive
       ```
     - This merges spec deltas to `openspec/specs/` and moves change to archive.
+    - **Note**: This is an internal call. If archiving fails, guide the user to re-run `/ccg:spec-impl`.
 
 **Reference**
 - Check task status: `openspec status --change "<id>" --json`

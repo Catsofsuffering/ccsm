@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.74] - 2026-03-09
+
+### 🐛 修复
+
+- **Gemini CLI `.env` 隔离**：修复 Gemini CLI 从项目目录加载 `.env` 导致全局 API Key 被覆盖的问题。codeagent-wrapper 现将 Gemini 的 `cmd.Dir` 设为 `$HOME`，项目目录通过 `--include-directories` 传入
+- **Gemini 模型参数支持**：`buildGeminiArgs` 支持 `--gemini-model` / `-m` 参数传递自定义模型
+- **Codex 测试修正**：修复预存的环境变量名错误（`CODEX_BYPASS_SANDBOX` → `CODEX_REQUIRE_APPROVAL`）
+
+---
+
 ## [1.7.73] - 2026-03-09
 
 ### ✨ 新功能
