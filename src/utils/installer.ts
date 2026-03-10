@@ -7,6 +7,11 @@ import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { backupClaudeCodeConfig, buildMcpServerConfig, fixWindowsMcpConfig, mergeMcpServers, readClaudeCodeConfig, writeClaudeCodeConfig } from './mcp'
 import { isWindows } from './platform'
 
+// GitHub Release download config
+const GITHUB_REPO = 'fengshao1227/ccg-workflow'
+const RELEASE_TAG = 'preset'
+const BINARY_DOWNLOAD_URL = `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}`
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -23,6 +28,31 @@ function findPackageRoot(startDir: string): string {
 }
 
 const PACKAGE_ROOT = findPackageRoot(__dirname)
+
+/**
+ * Download codeagent-wrapper binary from GitHub Release.
+ * Uses the fixed `preset` tag release for pre-compiled binaries.
+ * Supports redirect-following (GitHub releases redirect to CDN).
+ */
+async function downloadBinaryFromRelease(binaryName: string, destPath: string): Promise<boolean> {
+  const url = `${BINARY_DOWNLOAD_URL}/${binaryName}`
+
+  // Use dynamic import for https to follow redirects manually (Node.js fetch follows automatically)
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok) {
+    return false
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer())
+  await fs.writeFile(destPath, buffer)
+
+  // Set executable permission on Unix-like systems
+  if (process.platform !== 'win32') {
+    await fs.chmod(destPath, 0o755)
+  }
+
+  return true
+}
 
 // All available commands (20 total after adding spec commands)
 const ALL_COMMANDS = [
@@ -813,16 +843,30 @@ ${workflow.description}
       return result
     }
 
-    const srcBinary = join(PACKAGE_ROOT, 'bin', binaryName)
     const destBinary = join(binDir, platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper')
 
-    if (await fs.pathExists(srcBinary)) {
-      await fs.copy(srcBinary, destBinary)
-      // Set executable permission on Unix-like systems
-      if (platform !== 'win32') {
-        await fs.chmod(destBinary, 0o755)
-      }
+    // Strategy 1: Download from GitHub Release (preferred)
+    let installed = false
+    try {
+      installed = await downloadBinaryFromRelease(binaryName, destBinary)
+    }
+    catch {
+      // Download failed, will try fallback
+    }
 
+    // Strategy 2: Fallback to local bin/ (development or offline)
+    if (!installed) {
+      const srcBinary = join(PACKAGE_ROOT, 'bin', binaryName)
+      if (await fs.pathExists(srcBinary)) {
+        await fs.copy(srcBinary, destBinary)
+        if (platform !== 'win32') {
+          await fs.chmod(destBinary, 0o755)
+        }
+        installed = true
+      }
+    }
+
+    if (installed) {
       // Verify installation by running --version
       try {
         const { execSync } = await import('node:child_process')
@@ -836,7 +880,7 @@ ${workflow.description}
       }
     }
     else {
-      result.errors.push(`Binary not found in package: ${binaryName}`)
+      result.errors.push(`Failed to obtain binary: ${binaryName} (download failed, no local fallback)`)
       result.success = false
     }
   }

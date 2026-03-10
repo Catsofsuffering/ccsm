@@ -2,10 +2,10 @@
 codeagent-wrapper/codeagent-wrapper
 codeagent-wrapper/*.exe
 *.exe
-
-# 但是允许 bin/ 目录下的预编译二进制文件
-!bin/*.exe
 dist/
+
+# Pre-compiled binaries (hosted on GitHub Release, not tracked in git)
+bin/codeagent-wrapper-*
 node_modules/
 
 # Python
