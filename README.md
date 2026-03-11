@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-131%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-134%20passed-brightgreen.svg)]()
 
 [简体中文](./README.zh-CN.md) | English
 
@@ -268,7 +268,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -q 'codeagent-wrapper' && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"permissionDecisionReason\": \"codeagent-wrapper auto-approved\"}}' || exit 1",
+            "command": "jq -r '.tool_input.command' 2>/dev/null | grep -q 'codeagent-wrapper' && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"permissionDecisionReason\": \"codeagent-wrapper auto-approved\"}}' || true",
             "timeout": 1
           }
         ]
@@ -314,6 +314,12 @@ In `--json` mode, Codex does not automatically exit after output completion.
 We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 Looking for a place to start? Check out issues labeled [`good first issue`](https://github.com/fengshao1227/ccg-workflow/labels/good%20first%20issue).
+
+## Contributors
+
+<a href="https://github.com/fengshao1227/ccg-workflow/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=fengshao1227/ccg-workflow" />
+</a>
 
 ## Credits
 

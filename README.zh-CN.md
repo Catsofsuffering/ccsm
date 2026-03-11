@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-131%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-134%20passed-brightgreen.svg)]()
 
 简体中文 | [English](./README.md)
 
@@ -268,7 +268,7 @@ CCG 安装时自动写入 Hook，自动授权 `codeagent-wrapper` 命令（需 [
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -q 'codeagent-wrapper' && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"permissionDecisionReason\": \"codeagent-wrapper auto-approved\"}}' || exit 1",
+            "command": "jq -r '.tool_input.command' 2>/dev/null | grep -q 'codeagent-wrapper' && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"permissionDecisionReason\": \"codeagent-wrapper auto-approved\"}}' || true",
             "timeout": 1
           }
         ]
@@ -314,6 +314,12 @@ npm uninstall -g ccg-workflow  # npm 全局用户需额外执行
 欢迎贡献！请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解开发指南。
 
 想找一个入手点？查看标记为 [`good first issue`](https://github.com/fengshao1227/ccg-workflow/labels/good%20first%20issue) 的 Issue。
+
+## 贡献者
+
+<a href="https://github.com/fengshao1227/ccg-workflow/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=fengshao1227/ccg-workflow" />
+</a>
 
 ## 致谢
 
