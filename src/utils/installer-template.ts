@@ -21,6 +21,17 @@ function findPackageRoot(startDir: string): string {
 
 export const PACKAGE_ROOT = findPackageRoot(__dirname)
 
+// ═══════════════════════════════════════════════════════
+// MCP provider registry — adding a new provider = 1 line
+// ═══════════════════════════════════════════════════════
+
+const MCP_PROVIDERS: Record<string, { tool: string, param: string }> = {
+  'ace-tool': { tool: 'mcp__ace-tool__search_context', param: 'query' },
+  'ace-tool-rs': { tool: 'mcp__ace-tool__search_context', param: 'query' },
+  'contextweaver': { tool: 'mcp__contextweaver__codebase-retrieval', param: 'information_request' },
+  'fast-context': { tool: 'mcp__fast-context__fast_context_search', param: 'query' },
+}
+
 /**
  * Replace template variables in content based on user configuration.
  * Injects model routing configs and MCP provider tool names at install time.
@@ -68,46 +79,24 @@ export function injectConfigVariables(content: string, config: {
   const liteModeFlag = config.liteMode ? '--lite ' : ''
   processed = processed.replace(/\{\{LITE_MODE_FLAG\}\}/g, liteModeFlag)
 
-  // MCP tool injection based on provider
+  // MCP tool injection based on provider (registry-driven)
   const mcpProvider = config.mcpProvider || 'ace-tool'
   if (mcpProvider === 'skip') {
-    // MCP skipped: remove all MCP tool references, replace with Glob+Grep fallback
-
-    // 1) Agent frontmatter — remove MCP tool from tools declaration
+    // MCP skipped: multi-step fallback replacement (unique logic, not in registry)
     processed = processed.replace(/,\s*\{\{MCP_SEARCH_TOOL\}\}/g, '')
-
-    // 2) Code blocks containing MCP tool invocation — replace with fallback guidance
     processed = processed.replace(
       /```\n\{\{MCP_SEARCH_TOOL\}\}[\s\S]*?\n```/g,
       '> MCP 未配置。使用 `Glob` 定位文件 + `Grep` 搜索关键符号 + `Read` 读取文件内容。',
     )
-
-    // 3) Inline backtick references — replace with fallback tool names
-    processed = processed.replace(
-      /`\{\{MCP_SEARCH_TOOL\}\}`/g,
-      '`Glob + Grep`（MCP 未配置）',
-    )
-
-    // 4) Any remaining bare references (safety net)
+    processed = processed.replace(/`\{\{MCP_SEARCH_TOOL\}\}`/g, '`Glob + Grep`（MCP 未配置）')
     processed = processed.replace(/\{\{MCP_SEARCH_TOOL\}\}/g, 'Glob + Grep')
-
-    // 5) MCP_SEARCH_PARAM — not applicable when skipped
     processed = processed.replace(/\{\{MCP_SEARCH_PARAM\}\}/g, '')
   }
-  else if (mcpProvider === 'contextweaver') {
-    // ContextWeaver MCP tools
-    processed = processed.replace(/\{\{MCP_SEARCH_TOOL\}\}/g, 'mcp__contextweaver__codebase-retrieval')
-    processed = processed.replace(/\{\{MCP_SEARCH_PARAM\}\}/g, 'information_request')
-  }
-  else if (mcpProvider === 'fast-context') {
-    // Fast Context (Windsurf) MCP tools
-    processed = processed.replace(/\{\{MCP_SEARCH_TOOL\}\}/g, 'mcp__fast-context__fast_context_search')
-    processed = processed.replace(/\{\{MCP_SEARCH_PARAM\}\}/g, 'query')
-  }
   else {
-    // ace-tool / ace-tool-rs MCP tools (default)
-    processed = processed.replace(/\{\{MCP_SEARCH_TOOL\}\}/g, 'mcp__ace-tool__search_context')
-    processed = processed.replace(/\{\{MCP_SEARCH_PARAM\}\}/g, 'query')
+    // Registry lookup — adding a new MCP provider = 1 line
+    const provider = MCP_PROVIDERS[mcpProvider] ?? MCP_PROVIDERS['ace-tool']
+    processed = processed.replace(/\{\{MCP_SEARCH_TOOL\}\}/g, provider.tool)
+    processed = processed.replace(/\{\{MCP_SEARCH_PARAM\}\}/g, provider.param)
   }
 
   return processed
