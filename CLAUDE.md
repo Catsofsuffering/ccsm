@@ -451,8 +451,8 @@ git push origin main
 - [ ] **⚠ 若修改了 `codeagent-wrapper/` 下的 Go 代码，必须同步 bump 两处版本号：**
   - [ ] `codeagent-wrapper/main.go` → `version = "x.y.z"`
   - [ ] `src/utils/installer.ts` → `EXPECTED_BINARY_VERSION = 'x.y.z'`
-  - [ ] 交叉编译 6 平台 binary 并上传 GitHub Release（`gh release upload preset --clobber`）
   - 两边版本必须一致，否则用户 update 时无法触发 binary 重新下载
+  - **⛔ 禁止手动 `gh release upload`！** 推送 Go 代码后 CI（`.github/workflows/build-binaries.yml`）会自动编译 + 上传 GitHub Release + 同步 Cloudflare R2 镜像。手动上传会覆盖 CI 产物且 R2 不会同步
 - [ ] `pnpm typecheck` 通过（tsc --noEmit，不可跳过）
 - [ ] `pnpm build` 通过
 - [ ] `pnpm test` 通过
