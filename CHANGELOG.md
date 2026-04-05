@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.13] - 2026-04-05
+
+### 🐛 修复
+
+- **Windows Gemini 多行参数截断**（#129）：Windows 上 npm `.cmd` wrapper 经由 cmd.exe 转发时截断多行 `-p` 参数，导致 Gemini 仅接收到角色设定首行而不执行任务。修复：Windows 平台改用 stdin pipe 传递任务内容，不再使用 `-p` 参数
+- **Binary 版本升级**：`5.9.0` → `5.10.0`
+
+---
+
 ## [2.1.12] - 2026-04-03
 
 ### ✨ 新功能
