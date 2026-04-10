@@ -2,13 +2,16 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-04-07 (v2.1.14)
+**Last Updated**: 2026-04-10 (v2.1.14)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-04-10 (v2.1.14)
+- 📝 **CLAUDE.md 全量同步**：命令 29、提示词 19（claude/6+codex/6+gemini/7）、Agent 7、子模块文档建立（src/CLAUDE.md、templates/CLAUDE.md、codeagent-wrapper/CLAUDE.md 三个子索引）
 
 ### 2026-04-07 (v2.1.14)
 - 🐛 **模型路由硬编码修复**：21 个模板 ROLE_FILE 路径 + 表头 + 执行指令全部动态化，`{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}}` 替代硬编码 `codex/gemini`
@@ -204,15 +207,26 @@
 
 **CCG (Claude + Codex + Gemini)** - 多模型协作系统的核心实现，提供：
 
-1. **多模型协作编排**：固定路由 Gemini（前端）+ Codex（后端）+ Claude（编排）
-2. **28+ 斜杠命令**：开发工作流 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + Skill Registry 自动生成
-3. **13 个专家提示词**：Codex 6 个 + Gemini 7 个
-4. **Skill Registry**：SKILL.md frontmatter 驱动，user-invocable 技能自动生成 slash commands
-5. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件）+ 20 impeccable 工具 + scrapling + override-refusal
-6. **跨平台 CLI 工具**：一键安装（支持 macOS、Linux、Windows）
-7. **MCP 集成**：fast-context（推荐）/ ace-tool / ContextWeaver + context7（自动安装）+ Codex & Gemini MCP 同步
-8. **Agent Teams 并行实施**：Team 系列 4 个独立命令，spawn Builder teammates 并行写代码
-9. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
+1. **多模型协作编排**：可配置路由 Gemini（前端）+ Codex（后端）+ Claude（编排），v2.1.0+ 支持切换
+2. **29 个斜杠命令**：开发工作流 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + Prompt 增强 + Skill Registry 自动生成
+3. **19 个专家提示词**：Claude 6 个 + Codex 6 个 + Gemini 7 个
+4. **7 个子智能体**：planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer
+5. **Skill Registry**：SKILL.md frontmatter 驱动，user-invocable 技能自动生成 slash commands
+6. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件）+ 20 impeccable 工具 + scrapling + override-refusal
+7. **跨平台 CLI 工具**：一键安装（支持 macOS、Linux、Windows）
+8. **MCP 集成**：fast-context（推荐）/ ace-tool / ContextWeaver + context7（自动安装）+ Codex & Gemini MCP 同步
+9. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
+10. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
+
+---
+
+## 模块索引
+
+| 子模块 | 文档 | 职责 |
+|--------|------|------|
+| TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
+| 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.10.0 |
 
 ---
 
@@ -235,18 +249,20 @@ npx ccg-workflow menu
   - `init` - 初始化工作流（`src/commands/init.ts`）
   - `update` - 更新工作流（`src/commands/update.ts`）
   - `menu` - 交互式菜单（`src/commands/menu.ts`）
+  - `config` - MCP 配置管理（`src/commands/config-mcp.ts`）
   - `diagnose-mcp` - MCP 诊断（`src/commands/diagnose-mcp.ts`）
-  - `config` - 配置管理（`src/commands/config-mcp.ts`）
 
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
+- **当前版本**：v5.10.0
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
   <任务内容>
   EOF
   ```
+- 详见 [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md)
 
 ---
 
@@ -261,7 +277,7 @@ npx ccg-workflow menu
 | `npx ccg-workflow update` | 更新到最新版本 |
 | `npx ccg-workflow diagnose-mcp` | 诊断 MCP 配置 |
 
-### Slash Commands 接口（17 个）
+### Slash Commands 接口（29 个）
 
 **开发工作流**：
 | 命令 | 用途 | 模型 |
@@ -271,6 +287,7 @@ npx ccg-workflow menu
 | `/ccg:execute` | 多模型协作执行（Phase 3-5） | Codex ∥ Gemini + Claude |
 | `/ccg:codex-exec` | Codex 全权执行计划（MCP + 代码 + 测试） | Codex + 多模型审核 |
 | `/ccg:context` | 项目上下文管理（.context 初始化/日志/压缩/历史） | Claude |
+| `/ccg:enhance` | 内置 Prompt 增强，将模糊需求转化为结构化任务描述 | Claude |
 | `/ccg:frontend` | 前端专项（快速模式） | Gemini |
 | `/ccg:backend` | 后端专项（快速模式） | Codex |
 | `/ccg:feat` | 智能功能开发 | 规划 → 实施 |
@@ -293,6 +310,15 @@ npx ccg-workflow menu
 | `/ccg:clean-branches` | 清理已合并分支 |
 | `/ccg:worktree` | Worktree 管理 |
 
+**OpenSpec (OPSX) 封装**：
+| 命令 | 用途 |
+|------|------|
+| `/ccg:spec-init` | 初始化 OpenSpec 环境 + 验证多模型 MCP |
+| `/ccg:spec-research` | 需求 → 约束集（并行探索 + OPSX 提案） |
+| `/ccg:spec-plan` | 多模型分析 → 消除歧义 → 零决策可执行计划 |
+| `/ccg:spec-impl` | 按规范执行 + 多模型协作 + 归档 |
+| `/ccg:spec-review` | 双模型交叉审查（独立工具，随时可用） |
+
 **Agent Teams 并行实施**（v1.7.60+，需启用 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）：
 | 命令 | 用途 | 说明 |
 |------|------|------|
@@ -313,7 +339,7 @@ npx ccg-workflow menu
 | 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6 |
 | Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
 | 协作模式 | smart | ✗ | 最佳实践 |
-| 命令数量 | 28 个 | ✗ | 全部安装 |
+| 命令数量 | 29 个 | ✗ | 全部安装 |
 
 ---
 
@@ -354,92 +380,159 @@ npx ccg-workflow menu
 
 ```
 src/
-├── cli.ts                     # CLI 入口
-├── cli-setup.ts               # 命令注册
+├── cli.ts                       # CLI 入口
+├── cli-setup.ts                 # 命令注册
+├── index.ts                     # 模块导出
 ├── commands/
-│   ├── init.ts                # 初始化命令
-│   ├── update.ts              # 更新命令
-│   ├── menu.ts                # 交互式菜单
-│   └── ...
-├── utils/
-│   ├── installer.ts           # 安装逻辑（核心）
-│   ├── config.ts              # 配置管理
-│   ├── mcp.ts                 # MCP 工具集成
-│   └── ...
+│   ├── init.ts                  # 初始化命令
+│   ├── update.ts                # 更新命令
+│   ├── menu.ts                  # 交互式菜单
+│   ├── config-mcp.ts            # MCP 配置管理
+│   └── diagnose-mcp.ts          # MCP 诊断
+├── i18n/
+│   └── index.ts                 # 国际化（v1.7.69+）
+├── types/
+│   ├── cli.ts                   # CLI 类型定义
+│   └── index.ts                 # 类型导出
+└── utils/
+    ├── installer.ts             # 安装器主入口（v1.7.83 重构后）
+    ├── installer-data.ts        # 安装数据流
+    ├── installer-mcp.ts         # MCP 安装子模块
+    ├── installer-prompt.ts      # 提示词安装子模块
+    ├── installer-template.ts    # 模板安装子模块
+    ├── skill-registry.ts        # Skill Registry（v2.0.0 frontmatter 驱动）
+    ├── migration.ts             # 版本迁移
+    ├── version.ts               # 版本检查/下载
+    ├── config.ts                # 配置管理
+    ├── mcp.ts                   # MCP 工具集成
+    ├── platform.ts              # 平台检测
+    └── __tests__/               # 单元测试
+        ├── installer.test.ts
+        ├── installWorkflows.test.ts
+        ├── injectConfigVariables.test.ts
+        ├── version.test.ts
+        ├── config.test.ts
+        └── platform.test.ts
 ```
+
+详见 [src/CLAUDE.md](./src/CLAUDE.md)
 
 ### 模板文件
 
 ```
 templates/
-├── commands/                  # 27 个斜杠命令
-│   ├── workflow.md
-│   ├── plan.md                # 多模型协作规划
-│   ├── execute.md             # 多模型协作执行
-│   ├── codex-exec.md          # Codex 全权执行计划
-│   ├── context.md             # 项目上下文管理（.context）
-│   ├── frontend.md
-│   ├── backend.md
-│   ├── feat.md
-│   ├── analyze.md
-│   ├── debug.md
-│   ├── optimize.md
-│   ├── test.md
-│   ├── review.md
-│   ├── init.md
-│   ├── commit.md
-│   ├── rollback.md
-│   ├── clean-branches.md
-│   ├── worktree.md
-│   ├── team-research.md       # Agent Teams 需求→约束
-│   ├── team-plan.md           # Agent Teams 规划
-│   ├── team-exec.md           # Agent Teams 并行实施
-│   ├── team-review.md         # Agent Teams 审查
-│   └── agents/               # 4 个子智能体
-│       ├── planner.md
-│       ├── ui-ux-designer.md
-│       ├── init-architect.md
-│       └── get-current-datetime.md
-├── prompts/                  # 13 个专家提示词
-│   ├── codex/
-│   └── gemini/
-└── skills/                   # 100+ 技能文件（质量关卡 + 域知识 + impeccable + 工具）
+├── commands/                    # 29 个斜杠命令
+│   ├── workflow.md              # 完整 6 阶段工作流
+│   ├── plan.md                  # 多模型协作规划
+│   ├── execute.md               # 多模型协作执行
+│   ├── codex-exec.md            # Codex 全权执行计划
+│   ├── context.md               # 项目上下文管理（.context）
+│   ├── enhance.md               # 内置 Prompt 增强
+│   ├── frontend.md              # 前端专项
+│   ├── backend.md               # 后端专项
+│   ├── feat.md                  # 智能功能开发
+│   ├── analyze.md               # 技术分析
+│   ├── debug.md                 # 问题诊断 + 修复
+│   ├── optimize.md              # 性能优化
+│   ├── test.md                  # 测试生成
+│   ├── review.md                # 代码审查
+│   ├── init.md                  # 初始化项目 CLAUDE.md
+│   ├── commit.md                # 智能 Git 提交
+│   ├── rollback.md              # 交互式回滚
+│   ├── clean-branches.md        # 清理已合并分支
+│   ├── worktree.md              # Worktree 管理
+│   ├── spec-init.md             # 初始化 OpenSpec 环境
+│   ├── spec-research.md         # 需求 → 约束集
+│   ├── spec-plan.md             # 多模型分析 → 执行计划
+│   ├── spec-impl.md             # 按规范执行 + 归档
+│   ├── spec-review.md           # 双模型交叉审查
+│   ├── team.md                  # Agent Teams 统一工作流
+│   ├── team-research.md         # Agent Teams 需求→约束
+│   ├── team-plan.md             # Agent Teams 规划
+│   ├── team-exec.md             # Agent Teams 并行实施
+│   ├── team-review.md           # Agent Teams 审查
+│   └── agents/                  # 7 个子智能体
+│       ├── planner.md           # 任务规划师
+│       ├── ui-ux-designer.md    # UI/UX 设计师
+│       ├── init-architect.md    # 初始化架构师
+│       ├── get-current-datetime.md  # 日期时间获取
+│       ├── team-architect.md    # 团队架构师（v1.8.3+）
+│       ├── team-qa.md           # QA 工程师（v1.8.3+）
+│       └── team-reviewer.md     # 代码审查员（v1.8.3+）
+├── prompts/                     # 19 个专家提示词
+│   ├── claude/                  # 6 个 Claude 提示词
+│   │   ├── analyzer.md
+│   │   ├── architect.md
+│   │   ├── debugger.md
+│   │   ├── optimizer.md
+│   │   ├── reviewer.md
+│   │   └── tester.md
+│   ├── codex/                   # 6 个 Codex 提示词
+│   │   ├── analyzer.md
+│   │   ├── architect.md
+│   │   ├── debugger.md
+│   │   ├── optimizer.md
+│   │   ├── reviewer.md
+│   │   └── tester.md
+│   └── gemini/                  # 7 个 Gemini 提示词
+│       ├── analyzer.md
+│       ├── architect.md
+│       ├── debugger.md
+│       ├── frontend.md
+│       ├── optimizer.md
+│       ├── reviewer.md
+│       └── tester.md
+├── output-styles/               # 8 种输出风格
+│   ├── engineer-professional.md
+│   ├── nekomata-engineer.md
+│   ├── laowang-engineer.md
+│   ├── ojousama-engineer.md
+│   ├── abyss-cultivator.md
+│   ├── abyss-concise.md
+│   ├── abyss-command.md
+│   └── abyss-ritual.md
+├── rules/                       # 全局规则（→ ~/.claude/rules/）
+│   ├── ccg-skills.md            # 质量关卡自动触发规则
+│   └── ccg-skill-routing.md     # 域知识自动路由规则
+└── skills/                      # 100+ 技能文件（质量关卡 + 域知识 + impeccable + 工具）
+    ├── run_skill.js
+    ├── SKILL.md
     ├── tools/
-    │   ├── verify-security/
-    │   ├── verify-quality/
-    │   ├── verify-change/
-    │   ├── verify-module/
-    │   ├── gen-docs/
-    │   ├── override-refusal/  # /hi 反拒绝覆写器
-    │   └── lib/
-    ├── domains/              # 10 大领域知识秘典（61 文件）
-    │   ├── security/         # 红队/蓝队/渗透/审计/逆向/威胁情报
-    │   ├── architecture/     # API/缓存/云原生/消息队列/安全架构
-    │   ├── devops/           # Git/测试/数据库/性能/可观测性
-    │   ├── ai/               # Agent/RAG/LLM安全/Prompt工程
-    │   ├── development/      # Go/Python/Rust/TS/Java/C++/Shell
-    │   ├── frontend-design/  # UI美学/组件/UX + 4种设计风格
+    │   ├── verify-security/     # 安全漏洞扫描
+    │   ├── verify-quality/      # 代码质量检测
+    │   ├── verify-change/       # 变更影响分析
+    │   ├── verify-module/       # 模块完整性校验
+    │   ├── gen-docs/            # 文档自动生成
+    │   ├── override-refusal/    # /hi 反拒绝覆写器
+    │   └── lib/                 # 共享工具库
+    ├── domains/                 # 10 大领域知识秘典（61 文件）
+    │   ├── security/            # 红队/蓝队/渗透/审计/逆向/威胁情报
+    │   ├── architecture/        # API/缓存/云原生/消息队列/安全架构
+    │   ├── devops/              # Git/测试/数据库/性能/可观测性/成本优化
+    │   ├── ai/                  # Agent/RAG/LLM安全/Prompt工程
+    │   ├── development/         # Go/Python/Rust/TS/Java/C++/Shell
+    │   ├── frontend-design/     # UI美学/组件/UX + 4种设计风格
     │   ├── infrastructure/
     │   ├── mobile/
     │   ├── data-engineering/
     │   └── orchestration/
-    ├── impeccable/           # 20 个 UI/UX 精打磨技能
-    ├── scrapling/            # 网页抓取技能
+    ├── impeccable/              # 20 个 UI/UX 精打磨技能
+    ├── scrapling/               # 网页抓取技能（Cloudflare/WAF 绕过）
     └── orchestration/
         └── multi-agent/
-├── rules/                    # 全局规则（→ ~/.claude/rules/）
-│   └── ccg-skills.md         # 质量关卡自动触发规则
 ```
+
+详见 [templates/CLAUDE.md](./templates/CLAUDE.md)
 
 ### 预编译产物
 
 ```
 bin/
-├── ccg.mjs                           # CLI 入口脚本
-├── codeagent-wrapper-darwin-amd64    # macOS Intel
-├── codeagent-wrapper-darwin-arm64    # macOS Apple Silicon
-├── codeagent-wrapper-linux-amd64     # Linux x64
-├── codeagent-wrapper-linux-arm64     # Linux ARM64
+├── ccg.mjs                              # CLI 入口脚本
+├── codeagent-wrapper-darwin-amd64       # macOS Intel
+├── codeagent-wrapper-darwin-arm64       # macOS Apple Silicon
+├── codeagent-wrapper-linux-amd64        # Linux x64
+├── codeagent-wrapper-linux-arm64        # Linux ARM64
 ├── codeagent-wrapper-windows-amd64.exe  # Windows x64
 └── codeagent-wrapper-windows-arm64.exe  # Windows ARM64
 ```
@@ -452,12 +545,12 @@ bin/
 graph TD
     User["用户"] --> CLI["npx ccg-workflow"]
     CLI --> Init["一键安装"]
-    
-    Init --> Commands["~/.claude/commands/ccg/<br/>16 个命令"]
-    Init --> Agents["~/.claude/agents/ccg/<br/>4 个子智能体"]
-    Init --> Skills["~/.claude/skills/<br/>1 个 skill"]
-    Init --> Prompts["~/.claude/.ccg/prompts/<br/>13 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper"]
+
+    Init --> Commands["~/.claude/commands/ccg/<br/>29 个命令"]
+    Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
+    Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
+    Init --> Prompts["~/.claude/.ccg/prompts/<br/>19 个专家提示词"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.10.0"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]
@@ -535,4 +628,4 @@ git push origin main
 ---
 
 **扫描覆盖率**: 95%+
-**最后更新**: 2026-02-10
+**最后更新**: 2026-04-10
