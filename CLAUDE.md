@@ -2,13 +2,19 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-04-10 (v2.1.15)
+**Last Updated**: 2026-04-10 (v2.1.16)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-04-10 (v2.1.16)
+- ✨ **Init 交互状态机**：`init` 重构为状态机，每步首个 list 内嵌 `← 返回上一步` 和 `× 取消` 哨兵；Step 3 MCP 因首 prompt 是 checkbox，加前导 list 守门；解决"填错要 Ctrl+C 全部重来"痛点
+- ✨ **摘要页跳回菜单**：最终确认页改 list 菜单，支持"改 API / 改模型 / 改 MCP / 改性能"任意跳回，跑完自动回摘要
+- ✨ **API 跳过选项**（用户反馈）：Step 1/4 新增"跳过 — 我已通过 cc-switch / 其他工具自行配置"选项，不写 `settings.json` 的 `ANTHROPIC_*`
+- 🔄 **`src/commands/init.ts`**：Step 1-4 抽取闭包函数 + 主循环状态机，net +200 行；i18n 新增 `nav`/`summaryMenu`/`api.skipOption` 等 key
 
 ### 2026-04-10 (v2.1.15)
 - 🐛 **`--gemini-model` 泄漏到纯 codex 调用行修复**（#130）：`injectConfigVariables()` 改为行级感知替换，纯 `--backend codex/claude` 行清除 flag，`--backend gemini` 和条件行 `<codex|gemini>` 保留。新增 11 个单元测试。

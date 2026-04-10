@@ -1,6 +1,6 @@
 {
   "name": "ccg-workflow",
-  "version": "2.1.15",
+  "version": "2.1.16",
   "description": "Claude + Codex + Gemini multi-model collaboration system - smart routing development workflow",
   "type": "module",
   "packageManager": "pnpm@10.17.1",

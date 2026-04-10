@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.16] - 2026-04-10
+
+### ✨ 新功能
+
+- **Init 交互状态机**：`init` 流程重构为状态机模式，支持在每步中途返回上一步，解决"填错一个 URL/KEY 就要 Ctrl+C 全部重来"的痛点。每个 Step 的首个 list 选项末尾内嵌 `← 返回上一步` 和 `× 取消安装` 哨兵（Step 1 只有取消）。Step 3（MCP）因原首 prompt 是 checkbox 多选，加入前导 list 守门支持返回。
+- **摘要页跳回菜单**：最终确认页从 `confirm: yes/no` 改为 list 菜单，支持"确认安装 / 改 API 配置 / 改模型路由 / 改 MCP 工具 / 改性能模式 / 取消安装"。选"改 XXX"跳回对应 Step 重跑一次后直接回到摘要页，不用再走一遍后续步骤。
+- **API 跳过选项**：Step 1/4 API 提供方菜单新增第 4 个选项 `○ 跳过 — 我已通过 cc-switch / 其他工具自行配置`。选它后 CCG 不会写入 `settings.json` 的 `ANTHROPIC_BASE_URL/AUTH_TOKEN`，适用于已通过其他工具配好 API 的用户。
+
+### 🔄 变更
+
+- **重构 `src/commands/init.ts`**：Step 1-4 抽取为 `runApiStep / runModelStep / runMcpStep / runPerfStep` 闭包函数 + 主循环状态机，原 `Show summary / Confirm` 合并入 `runSummaryStep`。非交互模式（`--skip-prompt`）逻辑保持不变。net +200 行。
+- **i18n 新增 key**：`init.nav.*`、`init.summaryMenu.*`、`init.api.skipOption/skipNoticeTitle`、`init.mcp.gatePrompt/gateContinue`、`init.summary.apiProvider/apiSelfManaged/geminiModel`（中英双语）。
+
+---
+
 ## [2.1.15] - 2026-04-10
 
 ### 🐛 修复
