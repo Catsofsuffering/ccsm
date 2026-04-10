@@ -905,6 +905,15 @@ func TestRunCleanupFlagEndToEnd_FailureDoesNotAffectStartup(t *testing.T) {
 		return CleanupStats{}, nil
 	}
 	codexCommand = createFakeCodexScript(t, "tid-cleanup-e2e", "ok")
+	selectBackendFn = func(name string) (Backend, error) {
+		return testBackend{
+			name:    "codex",
+			command: codexCommand,
+			argsFn: func(cfg *Config, targetArg string) []string {
+				return []string{targetArg}
+			},
+		}, nil
+	}
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
 	os.Args = []string{"codex-wrapper", "post-cleanup task"}
