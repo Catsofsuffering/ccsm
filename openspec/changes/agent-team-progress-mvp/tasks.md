@@ -1,21 +1,20 @@
-## 1. Monitoring Model
+## 1. Frontend Foundation
 
-- [x] 1.1 Add structured run and task state types for monitoring wrapper-managed execution units.
-- [x] 1.2 Teach the executor to register tasks, transition lifecycle states, and record blocked/completed/failed outcomes.
-- [x] 1.3 Capture task result metadata and recent activity in the monitoring state without breaking existing stdout/stderr reporting.
+- [x] 1.1 Create a dedicated monitoring frontend workspace under `codeagent-wrapper` using the AgentField React/Vite embedding pattern as the starting point.
+- [x] 1.2 Add wrapper-side asset embedding/serving so the monitoring UI is no longer assembled from inline HTML strings in `server.go`.
 
-## 2. Persistence and APIs
+## 2. Monitoring Data Adapter
 
-- [x] 2.1 Persist run snapshots and append-only monitoring events to wrapper-owned local storage.
-- [x] 2.2 Add or update JSON/SSE endpoints to expose structured monitoring state for all tasks in the current run.
+- [x] 2.1 Implement typed frontend access for `/api/state`, `/api/sessions`, `/api/events`, and `/api/stream/:sessionID`.
+- [x] 2.2 Keep the backend contract bounded to wrapper-managed run/session/task data; only make additive DTO changes if the new UI cannot be implemented otherwise.
 
-## 3. Web Dashboard
+## 3. Dashboard Experience
 
-- [x] 3.1 Replace the single-session page with a dashboard that shows run summaries plus live per-task panels.
-- [x] 3.2 Render task dependencies, current activity, final outcomes, and available result metadata in the dashboard.
+- [x] 3.1 Build the new monitoring shell, summary cards, live task list, and recent-event surfaces using AgentField-inspired layout and component patterns.
+- [x] 3.2 Render dependency, timing, logs/history pointers, current activity, and final result metadata for each monitored task in responsive desktop/mobile layouts.
 
 ## 4. Verification
 
-- [x] 4.1 Add targeted tests for task lifecycle transitions, blocked-state handling, and persisted monitoring history.
-- [x] 4.2 Add targeted tests for monitoring API responses or dashboard data plumbing.
-- [x] 4.3 Run focused verification for `codeagent-wrapper` and summarize any remaining gaps.
+- [x] 4.1 Add frontend-focused tests for snapshot rendering, event-driven updates, and disconnect/reconnect behavior.
+- [x] 4.2 Add wrapper tests for embedded asset serving and monitoring API compatibility with the new frontend.
+- [x] 4.3 Run the full bounded verification set for this slice: frontend build/test plus `go test ./...` in `codeagent-wrapper`.

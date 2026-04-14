@@ -34,6 +34,17 @@ The system SHALL provide a built-in Web dashboard that shows live run summary in
 - **WHEN** a task completes or fails
 - **THEN** the dashboard SHALL show the final status together with available result details such as log path, changed files, or verification counts
 
+### Requirement: The monitoring dashboard SHALL be delivered as an embedded frontend bundle
+The system SHALL serve the monitoring dashboard from a dedicated frontend asset bundle embedded into the wrapper, rather than relying on a large inline HTML document as the primary UI implementation.
+
+#### Scenario: Embedded dashboard assets are available
+- **WHEN** the wrapper is built for a release that includes the monitoring UI
+- **THEN** the binary SHALL include the dashboard assets needed to render the monitoring experience without requiring a separately hosted web application
+
+#### Scenario: Browser opens monitoring UI
+- **WHEN** a user opens the wrapper Web UI entrypoint
+- **THEN** the wrapper SHALL serve the embedded dashboard shell and the frontend SHALL load task monitoring data from wrapper-owned monitoring endpoints
+
 ### Requirement: Monitoring history SHALL be retained after process exit
 The system SHALL persist run state and monitoring events to local wrapper-owned storage so users can inspect the final execution record after the live run ends.
 
