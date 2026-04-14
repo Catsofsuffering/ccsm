@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.10.0"
+	version               = "5.10.1"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -493,7 +493,7 @@ func run() (exitCode int) {
 
 	// CRITICAL: Windows-specific fix for Git Bash background process output capture
 	// Git Bash may buffer stdout when running in background mode, causing incomplete output
-	if isWindows() {
+	if isWindows() && shouldSyncStdout(os.Stdout) {
 		_ = os.Stdout.Sync()
 	}
 
@@ -514,6 +514,21 @@ func closeLogger() error {
 
 func activeLogger() *Logger {
 	return loggerPtr.Load()
+}
+
+func shouldSyncStdout(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	mode := info.Mode()
+	if mode&os.ModeNamedPipe != 0 {
+		return false
+	}
+	return true
 }
 
 func logInfo(msg string) {

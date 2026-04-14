@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +28,7 @@ func compareCleanupStats(got, want CleanupStats) bool {
 }
 
 func TestLoggerCreatesFileWithPID(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 
 	logger, err := NewLogger()
 	if err != nil {
@@ -495,7 +495,11 @@ func TestLoggerCleanupOldLogsPerformanceBound(t *testing.T) {
 	if removed != fileCount {
 		t.Fatalf("expected %d removals, got %d", fileCount, removed)
 	}
-	if elapsed > 100*time.Millisecond {
+	limit := 100 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		limit = 500 * time.Millisecond
+	}
+	if elapsed > limit {
 		t.Fatalf("cleanup took too long: %v for %d files", elapsed, fileCount)
 	}
 

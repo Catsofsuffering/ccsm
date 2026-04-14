@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -392,6 +390,26 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	monitor := ensureGlobalWebServer(defaultBackendName)
+	if monitor != nil {
+		for _, layer := range layers {
+			for _, task := range layer {
+				backendName := strings.TrimSpace(task.Backend)
+				if backendName == "" {
+					backendName = defaultBackendName
+				}
+				monitor.StartSession(SessionRegistration{
+					ID:           task.ID,
+					TaskID:       task.ID,
+					Backend:      backendName,
+					Task:         task.Task,
+					Status:       monitorStatusPending,
+					Dependencies: task.Dependencies,
+				})
+			}
+		}
+	}
+
 	workerLimit := maxWorkers
 	if workerLimit < 0 {
 		workerLimit = 0
@@ -437,6 +455,15 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 				res := TaskResult{TaskID: task.ID, ExitCode: 1, Error: reason}
 				results = append(results, res)
 				failed[task.ID] = res
+				if monitor != nil {
+					var blockedBy []string
+					for _, dep := range task.Dependencies {
+						if _, ok := failed[dep]; ok {
+							blockedBy = append(blockedBy, dep)
+						}
+					}
+					monitor.MarkBlocked(task.ID, blockedBy, reason)
+				}
 				continue
 			}
 
@@ -444,6 +471,9 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 				res := cancelledTaskResult(task.ID, ctx)
 				results = append(results, res)
 				failed[task.ID] = res
+				if monitor != nil {
+					monitor.FinishSession(task.ID, monitorResultFromTaskResult(res))
+				}
 				continue
 			}
 
@@ -455,12 +485,20 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 				handle := taskLoggerHandle{}
 				defer func() {
 					if r := recover(); r != nil {
-						resultsCh <- TaskResult{TaskID: ts.ID, ExitCode: 1, Error: fmt.Sprintf("panic: %v", r), LogPath: taskLogPath, sharedLog: handle.shared}
+						res := TaskResult{TaskID: ts.ID, ExitCode: 1, Error: fmt.Sprintf("panic: %v", r), LogPath: taskLogPath, sharedLog: handle.shared}
+						if monitor != nil {
+							monitor.FinishSession(ts.ID, monitorResultFromTaskResult(res))
+						}
+						resultsCh <- res
 					}
 				}()
 
 				if !acquireSlot() {
-					resultsCh <- cancelledTaskResult(ts.ID, ctx)
+					res := cancelledTaskResult(ts.ID, ctx)
+					if monitor != nil {
+						monitor.FinishSession(ts.ID, monitorResultFromTaskResult(res))
+					}
+					resultsCh <- res
 					return
 				}
 				defer releaseSlot()
@@ -485,8 +523,12 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 				ts.Context = taskCtx
 
 				printTaskStart(ts.ID, taskLogPath, handle.shared)
+				if monitor != nil {
+					monitor.MarkRunning(ts.ID, taskLogPath)
+				}
 
 				res := runCodexTaskFn(ts, timeout)
+				enrichTaskResult(&res)
 				if taskLogPath != "" {
 					if res.LogPath == "" || (handle.shared && handle.logger != nil && res.LogPath == handle.logger.Path()) {
 						res.LogPath = taskLogPath
@@ -512,6 +554,38 @@ func executeConcurrentWithContext(parentCtx context.Context, layers [][]TaskSpec
 	}
 
 	return results
+}
+
+func enrichTaskResult(result *TaskResult) {
+	if result == nil || strings.TrimSpace(result.Message) == "" {
+		return
+	}
+
+	lines := strings.Split(result.Message, "\n")
+	if result.CoverageTarget <= 0 {
+		result.CoverageTarget = defaultCoverageTarget
+	}
+	result.Coverage = extractCoverageFromLines(lines)
+	result.CoverageNum = extractCoverageNum(result.Coverage)
+	result.FilesChanged = extractFilesChangedFromLines(lines)
+	result.TestsPassed, result.TestsFailed = extractTestResultsFromLines(lines)
+	result.KeyOutput = extractKeyOutputFromLines(lines, 150)
+}
+
+func monitorResultFromTaskResult(result TaskResult) SessionResult {
+	status := monitorStatusCompleted
+	if result.ExitCode != 0 || strings.TrimSpace(result.Error) != "" {
+		status = monitorStatusFailed
+	}
+	return SessionResult{
+		Status:       status,
+		LogPath:      result.LogPath,
+		Error:        result.Error,
+		Coverage:     result.Coverage,
+		FilesChanged: append([]string(nil), result.FilesChanged...),
+		TestsPassed:  result.TestsPassed,
+		TestsFailed:  result.TestsFailed,
+	}
 }
 
 func cancelledTaskResult(taskID string, ctx context.Context) TaskResult {
@@ -877,22 +951,15 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		codexArgs = argsBuilder(cfg, targetArg)
 	}
 
-	// Start WebServer for this task (single-panel, random port, short-lived)
-	// Skip in lite mode for better performance
+	// Prepare WebServer session tracking when monitoring is enabled.
 	var webSessionID string
-	if !liteMode && globalWebServer == nil {
-		globalWebServer = NewWebServer(cfg.Backend)
-		if err := globalWebServer.Start(); err != nil {
-			logWarn(fmt.Sprintf("Failed to start web server: %v", err))
+	monitor := ensureGlobalWebServer(cfg.Backend)
+	if monitor != nil {
+		if strings.TrimSpace(taskSpec.ID) != "" {
+			webSessionID = taskSpec.ID
+		} else {
+			webSessionID = generateMonitorID(cfg.Backend)
 		}
-	}
-
-	// Generate a unique session ID for WebServer tracking
-	if !liteMode && globalWebServer != nil {
-		randBytes := make([]byte, 4)
-		rand.Read(randBytes)
-		webSessionID = fmt.Sprintf("%s-%d-%s", cfg.Backend, time.Now().UnixMilli(), hex.EncodeToString(randBytes))
-		globalWebServer.StartSession(webSessionID, cfg.Backend, taskSpec.Task)
 	}
 
 	prefixMsg := func(msg string) string {
@@ -958,6 +1025,23 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	}
 	if logger != nil {
 		result.LogPath = logger.Path()
+	}
+	if monitor != nil && webSessionID != "" {
+		if strings.TrimSpace(taskSpec.ID) == "" {
+			monitor.StartSession(SessionRegistration{
+				ID:           webSessionID,
+				TaskID:       webSessionID,
+				Backend:      cfg.Backend,
+				Task:         taskSpec.Task,
+				Status:       monitorStatusRunning,
+				Dependencies: taskSpec.Dependencies,
+				LogPath:      result.LogPath,
+			})
+			monitor.MarkRunning(webSessionID, result.LogPath)
+		}
+		defer func() {
+			monitor.FinishSession(webSessionID, monitorResultFromTaskResult(result))
+		}()
 	}
 
 	if !silent {
@@ -1057,18 +1141,23 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// Create onContent callback for streaming to WebServer
 	var onContentCallback func(content, contentType string)
-	if globalWebServer != nil && webSessionID != "" {
+	if monitor != nil && webSessionID != "" {
 		sessionID := webSessionID
 		backendName := cfg.Backend
 		onContentCallback = func(content, contentType string) {
-			globalWebServer.SendContentWithType(sessionID, backendName, content, contentType)
+			monitor.SendContentWithType(sessionID, backendName, content, contentType)
 		}
 	}
 
 	var onProgressCallback func(line string)
-	if cfg.Progress {
+	if cfg.Progress || (monitor != nil && webSessionID != "") {
 		onProgressCallback = func(line string) {
-			fmt.Fprintln(os.Stderr, line)
+			if cfg.Progress {
+				fmt.Fprintln(os.Stderr, line)
+			}
+			if monitor != nil && webSessionID != "" {
+				monitor.RecordProgress(webSessionID, line)
+			}
 		}
 	}
 
@@ -1099,10 +1188,6 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			select {
 			case completeSeen <- struct{}{}:
 			default:
-			}
-			// Notify WebServer that session is complete
-			if globalWebServer != nil && webSessionID != "" {
-				globalWebServer.EndSession(webSessionID, cfg.Backend)
 			}
 		}, onContentCallback, onProgressCallback, onSessionStartedCallback)
 		select {
@@ -1322,6 +1407,7 @@ waitLoop:
 	if result.LogPath == "" && injectedLogger != nil {
 		result.LogPath = injectedLogger.Path()
 	}
+	enrichTaskResult(&result)
 
 	return result
 }

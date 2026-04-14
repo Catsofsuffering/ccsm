@@ -598,11 +598,16 @@ func (f *fakeCmd) StdinContents() string {
 
 func createFakeCodexScript(t *testing.T, threadID, message string) string {
 	t.Helper()
-	scriptPath := filepath.Join(t.TempDir(), "codex.sh")
-	script := fmt.Sprintf(`#!/bin/sh
+	scriptPath := filepath.Join(t.TempDir(), portableScriptPath(t, "codex"))
+	var script string
+	if runtime.GOOS == "windows" {
+		script = fmt.Sprintf("@echo off\r\necho {\"type\":\"thread.started\",\"thread_id\":\"%s\"}\r\necho {\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"%s\"}}\r\n", threadID, message)
+	} else {
+		script = fmt.Sprintf(`#!/bin/sh
 printf '%%s\n' '{"type":"thread.started","thread_id":"%s"}'
 printf '%%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}'
 `, threadID, message)
+	}
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to create fake codex script: %v", err)
 	}
@@ -876,10 +881,10 @@ func TestRunCodexTask_ContextTimeout(t *testing.T) {
 	if fake.process == nil {
 		t.Fatalf("fake process not initialized")
 	}
-	if fake.process.SignalCount() == 0 {
+	if !isWindows() && fake.process.SignalCount() == 0 {
 		t.Fatalf("expected SIGTERM to be sent, got 0")
 	}
-	if fake.process.KillCount() == 0 {
+	if !isWindows() && fake.process.KillCount() == 0 {
 		t.Fatalf("expected Kill to eventually run, got 0")
 	}
 	if capturedTimer == nil {
@@ -905,6 +910,7 @@ func TestRunCodexTask_ForcesStopAfterCompletion(t *testing.T) {
 	}
 	defer resetTestHooks()
 	forceKillDelay.Store(0)
+	t.Setenv("CODEAGENT_POST_MESSAGE_DELAY", "0")
 
 	fake := newFakeCmd(fakeCmdConfig{
 		StdoutPlan: []fakeStdoutEvent{
@@ -933,7 +939,7 @@ func TestRunCodexTask_ForcesStopAfterCompletion(t *testing.T) {
 	if duration > 2*time.Second {
 		t.Fatalf("runCodexTaskWithContext took too long: %v", duration)
 	}
-	if fake.process.SignalCount() == 0 {
+	if !isWindows() && fake.process.SignalCount() == 0 {
 		t.Fatalf("expected SIGTERM to be sent, got %d", fake.process.SignalCount())
 	}
 }
@@ -944,6 +950,7 @@ func TestRunCodexTask_DoesNotTerminateBeforeThreadCompleted(t *testing.T) {
 	}
 	defer resetTestHooks()
 	forceKillDelay.Store(0)
+	t.Setenv("CODEAGENT_POST_MESSAGE_DELAY", "0")
 
 	fake := newFakeCmd(fakeCmdConfig{
 		StdoutPlan: []fakeStdoutEvent{
@@ -973,7 +980,7 @@ func TestRunCodexTask_DoesNotTerminateBeforeThreadCompleted(t *testing.T) {
 	if duration > 5*time.Second {
 		t.Fatalf("runCodexTaskWithContext took too long: %v", duration)
 	}
-	if fake.process.SignalCount() == 0 {
+	if !isWindows() && fake.process.SignalCount() == 0 {
 		t.Fatalf("expected SIGTERM to be sent, got %d", fake.process.SignalCount())
 	}
 }
@@ -2253,28 +2260,31 @@ func TestRunCodexTask_CommandNotFound(t *testing.T) {
 
 func TestRunCodexTask_StartError(t *testing.T) {
 	defer resetTestHooks()
-	tmpFile, err := os.CreateTemp("", "start-error")
+	tmpFile, err := os.CreateTemp("", "start-error-*.exe")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString("not a real executable"); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
 
 	codexCommand = tmpFile.Name()
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{} }
 
 	res := runCodexTask(TaskSpec{Task: "task"}, false, 1)
-	if res.ExitCode != 1 || !strings.Contains(res.Error, "failed to start") {
+	if res.ExitCode != 1 || !(strings.Contains(res.Error, "failed to start") || strings.Contains(res.Error, "not found")) {
 		t.Fatalf("unexpected result: %+v", res)
 	}
 }
 
 func TestRunCodexTask_WithEcho(t *testing.T) {
 	defer resetTestHooks()
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
-
-	jsonOutput := `{"type":"thread.started","thread_id":"test-session"}
-{"type":"item.completed","item":{"type":"agent_message","text":"Test output"}}`
+	jsonOutput := fakeCodexJSON("test-session", "Test output")
+	configureRealCodexOutput(t, jsonOutput)
 
 	res := runCodexTask(TaskSpec{Task: jsonOutput}, false, 10)
 	if res.ExitCode != 0 || res.Message != "Test output" || res.SessionID != "test-session" {
@@ -2356,11 +2366,8 @@ func TestRunCodexTask_LogPathWithActiveLogger(t *testing.T) {
 	}
 	setLogger(logger)
 
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
-
-	jsonOutput := `{"type":"thread.started","thread_id":"fake-thread"}
-{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`
+	jsonOutput := fakeCodexJSON("fake-thread", "ok")
+	configureRealCodexOutput(t, jsonOutput)
 
 	result := runCodexTask(TaskSpec{Task: jsonOutput}, false, 5)
 	if result.LogPath != logger.Path() {
@@ -2426,9 +2433,8 @@ func TestRunCodexTask_LogPathOnStartError(t *testing.T) {
 
 func TestRunCodexTask_NoMessage(t *testing.T) {
 	defer resetTestHooks()
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
 	jsonOutput := `{"type":"thread.started","thread_id":"test-session"}`
+	configureRealCodexOutput(t, jsonOutput+"\n")
 	res := runCodexTask(TaskSpec{Task: jsonOutput}, false, 10)
 	if res.ExitCode != 1 || res.Error == "" {
 		t.Fatalf("expected error for missing agent_message, got %+v", res)
@@ -2437,9 +2443,8 @@ func TestRunCodexTask_NoMessage(t *testing.T) {
 
 func TestRunCodexTask_WithStdin(t *testing.T) {
 	defer resetTestHooks()
-	codexCommand = "cat"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{} }
 	jsonInput := `{"type":"item.completed","item":{"type":"agent_message","text":"from stdin"}}`
+	configureRealCodexStdinEcho(t)
 	res := runCodexTask(TaskSpec{Task: jsonInput, UseStdin: true}, false, 10)
 	if res.ExitCode != 0 || res.Message != "from stdin" {
 		t.Fatalf("unexpected result: %+v", res)
@@ -2448,12 +2453,13 @@ func TestRunCodexTask_WithStdin(t *testing.T) {
 
 func TestRunCodexProcess_WithStdin(t *testing.T) {
 	defer resetTestHooks()
-	codexCommand = "cat"
 	jsonOutput := `{"type":"thread.started","thread_id":"proc"}`
 	jsonOutput += "\n"
 	jsonOutput += `{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`
+	command, args := realStdinEchoCommand(t)
+	codexCommand = command
 
-	msg, tid, exit := runCodexProcess(context.Background(), []string{}, jsonOutput, true, 5)
+	msg, tid, exit := runCodexProcess(context.Background(), args, jsonOutput, true, 5)
 	if exit != 0 {
 		t.Fatalf("exit code %d, want 0", exit)
 	}
@@ -2474,10 +2480,8 @@ func TestRunCodexTask_ExitError(t *testing.T) {
 
 func TestRunCodexTask_StdinPipeError(t *testing.T) {
 	defer resetTestHooks()
-	commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, "cat")
-		cmd.Stdin = os.Stdin
-		return cmd
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return &realCmd{cmd: &exec.Cmd{Stdin: os.Stdin}}
 	}
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{} }
 	res := runCodexTask(TaskSpec{Task: "data", UseStdin: true}, false, 1)
@@ -2488,10 +2492,8 @@ func TestRunCodexTask_StdinPipeError(t *testing.T) {
 
 func TestRunCodexTask_StdoutPipeError(t *testing.T) {
 	defer resetTestHooks()
-	commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, "echo", "noop")
-		cmd.Stdout = os.Stdout
-		return cmd
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return &realCmd{cmd: &exec.Cmd{Stdout: os.Stdout}}
 	}
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{} }
 	res := runCodexTask(TaskSpec{Task: "noop"}, false, 1)
@@ -2502,8 +2504,7 @@ func TestRunCodexTask_StdoutPipeError(t *testing.T) {
 
 func TestRunCodexTask_Timeout(t *testing.T) {
 	defer resetTestHooks()
-	codexCommand = "sleep"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{"2"} }
+	configureRealCodexSleep(t, 2)
 	res := runCodexTask(TaskSpec{Task: "ignored"}, false, 1)
 	if res.ExitCode != 124 || !strings.Contains(res.Error, "timeout") {
 		t.Fatalf("expected timeout, got %+v", res)
@@ -2511,6 +2512,9 @@ func TestRunCodexTask_Timeout(t *testing.T) {
 }
 
 func TestRunCodexTask_SignalHandling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("programmatic self-signalling is not supported on Windows in this test harness")
+	}
 	defer resetTestHooks()
 	codexCommand = "sleep"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{"5"} }
@@ -2519,10 +2523,10 @@ func TestRunCodexTask_SignalHandling(t *testing.T) {
 	go func() { resultCh <- runCodexTask(TaskSpec{Task: "ignored"}, false, 5) }()
 
 	time.Sleep(200 * time.Millisecond)
-	syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	sendSelfTestSignal(t, testTerminateSignal())
 
 	res := <-resultCh
-	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+	signal.Reset(testResetSignals()...)
 
 	if res.ExitCode == 0 || res.Error == "" {
 		t.Fatalf("expected non-zero exit after signal, got %+v", res)
@@ -2561,10 +2565,10 @@ func TestCancelReason(t *testing.T) {
 
 func TestRunCodexProcess(t *testing.T) {
 	defer resetTestHooks()
-	script := createFakeCodexScript(t, "proc-thread", "proc-msg")
-	codexCommand = script
+	command, args := realOutputCommand(t, fakeCodexJSON("proc-thread", "proc-msg"))
+	codexCommand = command
 
-	msg, threadID, exitCode := runCodexProcess(context.Background(), nil, "ignored", false, 5)
+	msg, threadID, exitCode := runCodexProcess(context.Background(), args, "ignored", false, 5)
 	if exitCode != 0 {
 		t.Fatalf("exit = %d, want 0", exitCode)
 	}
@@ -2578,10 +2582,8 @@ func TestRunCodexProcess(t *testing.T) {
 
 func TestRunSilentMode(t *testing.T) {
 	defer resetTestHooks()
-	jsonOutput := `{"type":"thread.started","thread_id":"silent-session"}
-{"type":"item.completed","item":{"type":"agent_message","text":"quiet"}}`
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	jsonOutput := fakeCodexJSON("silent-session", "quiet")
+	configureRealCodexOutput(t, jsonOutput)
 
 	capture := func(silent bool) string {
 		oldStderr := os.Stderr
@@ -3052,7 +3054,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.10.0\n"
+	want := fmt.Sprintf("codeagent-wrapper version %s\n", version)
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3068,7 +3070,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.10.0\n"
+	want := fmt.Sprintf("codeagent-wrapper version %s\n", version)
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3084,7 +3086,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.10.0\n"
+	want := fmt.Sprintf("codex-wrapper version %s\n", version)
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3547,8 +3549,7 @@ func TestRun_ExplicitStdinEmpty(t *testing.T) {
 
 func TestRun_ExplicitStdinReadError(t *testing.T) {
 	defer resetTestHooks()
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 	logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
 
 	var logOutput string
@@ -3582,7 +3583,7 @@ func TestRun_CommandFails(t *testing.T) {
 	os.Args = []string{"codeagent-wrapper", "task"}
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
-	restore := withBackend("false", func(cfg *Config, targetArg string) []string { return []string{} })
+	restore := withRealFailingBackend()
 	defer restore()
 	if code := run(); code == 0 {
 		t.Errorf("expected non-zero")
@@ -3603,7 +3604,7 @@ func TestRun_SuccessfulExecution(t *testing.T) {
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
-	restore := withBackend(createFakeCodexScript(t, "tid-123", "ok"), buildCodexArgs)
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-123", "ok"))
 	defer restore()
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
@@ -3625,7 +3626,7 @@ func TestRun_ExplicitStdinSuccess(t *testing.T) {
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
-	restore := withBackend(createFakeCodexScript(t, "tid-stdin", "from-stdin"), buildCodexArgs)
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-stdin", "from-stdin"))
 	defer restore()
 	stdinReader = strings.NewReader("line1\nline2")
 	isTerminalFn = func() bool { return false }
@@ -3644,8 +3645,7 @@ func TestRun_ExplicitStdinSuccess(t *testing.T) {
 
 func TestRun_PipedTaskReadError(t *testing.T) {
 	defer resetTestHooks()
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 	logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
 
 	var logOutput string
@@ -3656,7 +3656,7 @@ func TestRun_PipedTaskReadError(t *testing.T) {
 		}
 	}
 
-	restore := withBackend(createFakeCodexScript(t, "tid-pipe", "piped-task"), buildCodexArgs)
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-pipe", "piped-task"))
 	defer restore()
 	isTerminalFn = func() bool { return false }
 	stdinReader = errReader{errors.New("pipe failure")}
@@ -3679,7 +3679,7 @@ func TestRun_PipedTaskSuccess(t *testing.T) {
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
-	restore := withBackend(createFakeCodexScript(t, "tid-pipe", "piped-task"), buildCodexArgs)
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-pipe", "piped-task"))
 	defer restore()
 	isTerminalFn = func() bool { return false }
 	stdinReader = strings.NewReader("piped task text")
@@ -3698,13 +3698,12 @@ func TestRun_PipedTaskSuccess(t *testing.T) {
 
 func TestRun_LoggerLifecycle(t *testing.T) {
 	defer resetTestHooks()
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 	logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
 
 	stdout := captureStdoutPipe()
 
-	restore := withBackend(createFakeCodexScript(t, "tid-logger", "ok"), buildCodexArgs)
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-logger", "ok"))
 	defer restore()
 	isTerminalFn = func() bool { return true }
 	stdinReader = strings.NewReader("")
@@ -3732,19 +3731,21 @@ func TestRun_LoggerLifecycle(t *testing.T) {
 }
 
 func TestRun_LoggerRemovedOnSignal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("programmatic self-signalling is not supported on Windows in this test harness")
+	}
 	// Skip in CI due to unreliable signal delivery in containerized environments
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("Skipping signal test in CI environment")
 	}
 
 	defer resetTestHooks()
-	defer signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Reset(testResetSignals()...)
 
 	// Set shorter delays for faster test
 	forceKillDelay.Store(1)
 
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 	logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
 
 	scriptPath := filepath.Join(tempDir, "sleepy-codex.sh")
@@ -3773,7 +3774,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"l
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+	sendSelfTestSignal(t, testInterruptSignal())
 
 	var exitCode int
 	select {
@@ -3795,11 +3796,7 @@ func TestRun_CleanupHookAlwaysCalled(t *testing.T) {
 	defer resetTestHooks()
 	called := false
 	cleanupHook = func() { called = true }
-	// Use a command that goes through normal flow, not --version which returns early
-	restore := withBackend("echo", func(cfg *Config, targetArg string) []string {
-		return []string{`{"type":"thread.started","thread_id":"x"}
-{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`}
-	})
+	restore := withRealBackendOutput(t, fakeCodexJSON("x", "ok"))
 	defer restore()
 	os.Args = []string{"codeagent-wrapper", "task"}
 	if exitCode := run(); exitCode != 0 {
@@ -3848,7 +3845,8 @@ func TestRun_CleanupFailureDoesNotBlock(t *testing.T) {
 		panic("boom")
 	}
 
-	codexCommand = createFakeCodexScript(t, "tid-cleanup", "ok")
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-cleanup", "ok"))
+	defer restore()
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
 	os.Args = []string{"codex-wrapper", "task"}
@@ -4093,16 +4091,13 @@ func TestBackendRunCoverage(t *testing.T) {
 func TestParallelLogPathInSerialMode(t *testing.T) {
 	defer resetTestHooks()
 
-	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	tempDir := setTempDirEnv(t, t.TempDir())
 
 	os.Args = []string{"codex-wrapper", "do-stuff"}
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string {
-		return []string{`{"type":"thread.started","thread_id":"cli-session"}` + "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`}
-	}
+	restore := withRealBackendOutput(t, fakeCodexJSON("cli-session", "ok"))
+	defer restore()
 
 	var exitCode int
 	stderr := captureStderr(t, func() {
@@ -4239,9 +4234,7 @@ func TestRun_CLI_Success(t *testing.T) {
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
 
-	restore := withBackend("echo", func(cfg *Config, targetArg string) []string {
-		return []string{`{"type":"thread.started","thread_id":"cli-session"}` + "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`}
-	})
+	restore := withRealBackendOutput(t, fakeCodexJSON("cli-session", "ok"))
 	defer restore()
 
 	var exitCode int

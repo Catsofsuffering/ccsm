@@ -331,12 +331,13 @@ describe('installWorkflows E2E — mcpProvider="contextweaver"', () => {
 // ─────────────────────────────────────────────────────────────
 describe('uninstallWorkflows E2E', () => {
   const tmpDir = join(tmpdir(), `ccg-test-uninstall-${Date.now()}`)
+  const e2eTimeout = process.platform === 'win32' ? 60_000 : 20_000
 
   afterAll(async () => {
     await fs.remove(tmpDir)
   })
 
-  it('installs then uninstalls cleanly', { timeout: 20_000 }, async () => {
+  it('installs then uninstalls cleanly', { timeout: e2eTimeout }, async () => {
     // First install
     const installResult = await installWorkflows(getAllCommandIds(), tmpDir, true, {
       mcpProvider: 'ace-tool',
@@ -369,12 +370,13 @@ describe('uninstallWorkflows E2E', () => {
 // ─────────────────────────────────────────────────────────────
 describe('installWorkflows — binary installation', () => {
   const tmpDir = join(tmpdir(), `ccg-test-bin-${Date.now()}`)
+  const e2eTimeout = process.platform === 'win32' ? 60_000 : 20_000
 
   afterAll(async () => {
     await fs.remove(tmpDir)
   })
 
-  it('installs codeagent-wrapper binary for current platform', { timeout: 20_000 }, async () => {
+  it('installs codeagent-wrapper binary for current platform', { timeout: e2eTimeout }, async () => {
     const result = await installWorkflows(['workflow'], tmpDir, true, {
       mcpProvider: 'skip',
     })

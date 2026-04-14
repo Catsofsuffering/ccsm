@@ -523,10 +523,8 @@ func TestRunNonParallelOutputsIncludeLogPathsIntegration(t *testing.T) {
 	os.Args = []string{"codex-wrapper", "integration-log-check"}
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
-	codexCommand = "echo"
-	buildCodexArgsFn = func(cfg *Config, targetArg string) []string {
-		return []string{`{"type":"thread.started","thread_id":"integration-session"}` + "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"done"}}`}
-	}
+	restore := withRealBackendOutput(t, fakeCodexJSON("integration-session", "done"))
+	defer restore()
 
 	var exitCode int
 	stderr := captureStderr(t, func() {
@@ -737,7 +735,8 @@ func TestRunStartupCleanupRemovesOrphansEndToEnd(t *testing.T) {
 		return time.Time{}
 	})
 
-	codexCommand = createFakeCodexScript(t, "tid-startup", "ok")
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-startup", "ok"))
+	defer restore()
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
 	os.Args = []string{"codex-wrapper", "task"}
@@ -904,16 +903,8 @@ func TestRunCleanupFlagEndToEnd_FailureDoesNotAffectStartup(t *testing.T) {
 	cleanupLogsFn = func() (CleanupStats, error) {
 		return CleanupStats{}, nil
 	}
-	codexCommand = createFakeCodexScript(t, "tid-cleanup-e2e", "ok")
-	selectBackendFn = func(name string) (Backend, error) {
-		return testBackend{
-			name:    "codex",
-			command: codexCommand,
-			argsFn: func(cfg *Config, targetArg string) []string {
-				return []string{targetArg}
-			},
-		}, nil
-	}
+	restore := withRealBackendOutput(t, fakeCodexJSON("tid-cleanup-e2e", "ok"))
+	defer restore()
 	stdinReader = strings.NewReader("")
 	isTerminalFn = func() bool { return true }
 	os.Args = []string{"codex-wrapper", "post-cleanup task"}

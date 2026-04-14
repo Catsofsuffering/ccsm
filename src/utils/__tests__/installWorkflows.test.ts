@@ -92,12 +92,13 @@ describe('installWorkflows E2E — mcpProvider="skip"', () => {
 // ─────────────────────────────────────────────────────────────
 describe('installWorkflows E2E — mcpProvider="ace-tool" (control)', () => {
   const tmpDir = join(tmpdir(), `ccg-test-ace-${Date.now()}`)
+  const e2eTimeout = process.platform === 'win32' ? 60_000 : 20_000
 
   afterAll(async () => {
     await fs.remove(tmpDir)
   })
 
-  it('installs all workflows and injects ace-tool references', { timeout: 20_000 }, async () => {
+  it('installs all workflows and injects ace-tool references', { timeout: e2eTimeout }, async () => {
     const result = await installWorkflows(ALL_IDS, tmpDir, true, {
       mcpProvider: 'ace-tool',
     })

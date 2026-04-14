@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -176,7 +177,7 @@ func TestExecutorHelperCoverage(t *testing.T) {
 		if rcWithCmd.cmd.Dir != "/tmp" {
 			t.Fatalf("expected SetDir to set cmd.Dir, got %q", rcWithCmd.cmd.Dir)
 		}
-		echoCmd := exec.Command("echo", "ok")
+		echoCmd := portableStartedCommand()
 		rcProc := &realCmd{cmd: echoCmd}
 		stdoutPipe, err := rcProc.StdoutPipe()
 		if err != nil {
@@ -196,7 +197,9 @@ func TestExecutorHelperCoverage(t *testing.T) {
 		if procHandle == nil {
 			t.Fatalf("expected process handle")
 		}
-		_ = procHandle.Signal(syscall.SIGTERM)
+		if runtime.GOOS != "windows" {
+			_ = procHandle.Signal(syscall.SIGTERM)
+		}
 		_ = procHandle.Kill()
 		_ = rcProc.Wait()
 		_, _ = io.ReadAll(stdoutPipe)
@@ -215,8 +218,10 @@ func TestExecutorHelperCoverage(t *testing.T) {
 		if rpLive.Pid() != 99 {
 			t.Fatalf("expected pid 99, got %d", rpLive.Pid())
 		}
-		_ = rpLive.Kill()
-		_ = rpLive.Signal(syscall.SIGTERM)
+		if runtime.GOOS != "windows" {
+			_ = rpLive.Kill()
+			_ = rpLive.Signal(syscall.SIGTERM)
+		}
 	})
 
 	t.Run("topologicalSortAndSkip", func(t *testing.T) {
@@ -460,11 +465,7 @@ func TestExecutorRunCodexTaskWithContext(t *testing.T) {
 	})
 
 	t.Run("waitExitError", func(t *testing.T) {
-		err := exec.Command("false").Run()
-		exitErr, _ := err.(*exec.ExitError)
-		if exitErr == nil {
-			t.Fatalf("expected exec.ExitError")
-		}
+		exitErr := portableExitError(t)
 		newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
 			return &execFakeRunner{
 				stdout:  newReasonReadCloser(`{"type":"item.completed","item":{"type":"agent_message","text":"ignored"}}`),
@@ -1103,11 +1104,11 @@ func TestExecutorExecuteConcurrentWithContextBranches(t *testing.T) {
 			_ = os.Remove(mainLogger.Path())
 		})
 
-		noWrite := filepath.Join(writable, "ro")
-		if err := os.Mkdir(noWrite, 0o500); err != nil {
-			t.Fatalf("failed to create read-only temp dir: %v", err)
+		noWrite := filepath.Join(writable, "not-a-dir")
+		if err := os.WriteFile(noWrite, []byte("x"), 0o644); err != nil {
+			t.Fatalf("failed to create invalid temp path: %v", err)
 		}
-		t.Setenv("TMPDIR", noWrite)
+		_ = setTempDirEnv(t, noWrite)
 
 		taskA := nextExecutorTestTaskID("shared-a")
 		taskB := nextExecutorTestTaskID("shared-b")
@@ -1250,10 +1251,10 @@ func TestExecutorSignalAndTermination(t *testing.T) {
 	proc.mu.Lock()
 	signalled := len(proc.signals)
 	proc.mu.Unlock()
-	if signalled == 0 {
+	if !isWindows() && signalled == 0 {
 		t.Fatalf("process did not receive signal")
 	}
-	if proc.killed.Load() == 0 {
+	if !isWindows() && proc.killed.Load() == 0 {
 		t.Fatalf("process was not killed after signal")
 	}
 
