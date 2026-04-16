@@ -135,7 +135,6 @@ describe('primary-path templates', () => {
           backend: { models: ['codex'], primary: 'codex' },
           review: { models: ['codex'] },
         },
-        liteMode: false,
         mcpProvider: 'ace-tool',
       })
 

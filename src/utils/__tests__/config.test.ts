@@ -66,14 +66,14 @@ describe('createDefaultConfig', () => {
     expect(config.mcp.provider).toBe('contextweaver')
   })
 
-  it('defaults liteMode to false', () => {
+  it('defaults skipImpeccable to false', () => {
     const config = createDefaultConfig(baseOptions)
-    expect(config.performance?.liteMode).toBe(false)
+    expect(config.performance?.skipImpeccable).toBe(false)
   })
 
-  it('respects liteMode = true', () => {
-    const config = createDefaultConfig({ ...baseOptions, liteMode: true })
-    expect(config.performance?.liteMode).toBe(true)
+  it('respects skipImpeccable = true', () => {
+    const config = createDefaultConfig({ ...baseOptions, skipImpeccable: true })
+    expect(config.performance?.skipImpeccable).toBe(true)
   })
 
   it('sets paths with home directory', () => {

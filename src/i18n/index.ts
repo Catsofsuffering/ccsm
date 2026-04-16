@@ -112,11 +112,8 @@ const zhCN = {
       modelRouting: '模型路由',
       commandCount: '命令数量',
       mcpTool: 'MCP 工具',
-      webUI: 'Web UI',
       pendingConfig: '待配置',
       skipped: '跳过',
-      enabled: '启用',
-      disabled: '禁用',
     },
     mcp: {
       title: 'MCP 代码检索工具配置',
@@ -185,10 +182,6 @@ const zhCN = {
       leaveEmptyForOfficial: '留空使用官方',
       leaveEmptyToSkip: '留空跳过',
     },
-    webui: {
-      prompt: '启用 Web UI 实时输出？',
-      disableHint: '禁用可加速响应',
-    },
     model: {
       title: '模型路由配置',
       selectOrchestrator: '选择工作流编排器',
@@ -204,13 +197,8 @@ const zhCN = {
       reinstallDone: '模板已更新',
       reinstallFailed: '模板更新失败',
     },
-    perf: {
-      title: '性能模式',
-      selectMode: '选择性能模式',
-      standardOption: '标准模式（含 Web UI 实时监控）',
-      liteOption: '轻量模式（无 Web UI，响应更快）',
-    },
     commands: {
+      title: '可选命令包',
       includeImpeccable: '安装 Impeccable 前端设计工具？（20 个 UI/UX 命令：polish/audit/animate 等）',
     },
     hooks: {
@@ -591,11 +579,8 @@ const en: typeof zhCN = {
       modelRouting: 'Model Routing',
       commandCount: 'Commands',
       mcpTool: 'MCP Tool',
-      webUI: 'Web UI',
       pendingConfig: 'pending',
       skipped: 'skipped',
-      enabled: 'Enabled',
-      disabled: 'Disabled',
     },
     mcp: {
       title: 'MCP Code Retrieval Tool',
@@ -664,10 +649,6 @@ const en: typeof zhCN = {
       leaveEmptyForOfficial: 'Leave empty for official',
       leaveEmptyToSkip: 'Leave empty to skip',
     },
-    webui: {
-      prompt: 'Enable Web UI real-time output?',
-      disableHint: 'Disabling can speed up response',
-    },
     model: {
       title: 'Model Routing',
       selectOrchestrator: 'Select workflow orchestrator',
@@ -683,13 +664,8 @@ const en: typeof zhCN = {
       reinstallDone: 'Templates updated',
       reinstallFailed: 'Template update failed',
     },
-    perf: {
-      title: 'Performance Mode',
-      selectMode: 'Select performance mode',
-      standardOption: 'Standard (with Web UI real-time monitoring)',
-      liteOption: 'Lite (no Web UI, faster response)',
-    },
     commands: {
+      title: 'Optional command packs',
       includeImpeccable: 'Install Impeccable frontend design tools? (20 UI/UX commands: polish/audit/animate etc.)',
     },
     hooks: {

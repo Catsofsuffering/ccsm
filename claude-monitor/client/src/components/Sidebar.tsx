@@ -37,6 +37,9 @@ const NAV_ITEMS = [
 ] as const;
 
 const STORAGE_KEY = "sidebar-collapsed";
+const AUTHOR_GITHUB_URL = "https://github.com/Catsofsuffering";
+const REPOSITORY_URL = "https://github.com/Catsofsuffering/CCGS";
+const REPOSITORY_LABEL = "CatsOfSuffering/CCGS";
 
 function loadCollapsed(): boolean {
   try {
@@ -160,43 +163,43 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
         {!collapsed && (
           <div className="flex items-center gap-3">
             <a
-              href="https://github.com/hoangsonww"
+              href={AUTHOR_GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-500 hover:text-gray-300 transition-colors"
-              title="GitHub"
+              title="Catsofsuffering"
             >
               <Github className="w-3.5 h-3.5" />
             </a>
             <a
-              href="https://sonnguyenhoang.com"
+              href={REPOSITORY_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1 text-[11px]"
-              title="sonnguyenhoang.com"
+              title={REPOSITORY_LABEL}
             >
               <Globe className="w-3.5 h-3.5" />
-              <span>sonnguyenhoang.com</span>
+              <span>{REPOSITORY_LABEL}</span>
             </a>
           </div>
         )}
         {collapsed && (
           <div className="flex justify-center gap-2">
             <a
-              href="https://github.com/hoangsonww"
+              href={AUTHOR_GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-500 hover:text-gray-300 transition-colors"
-              title="GitHub"
+              title="Catsofsuffering"
             >
               <Github className="w-3.5 h-3.5" />
             </a>
             <a
-              href="https://sonnguyenhoang.com"
+              href={REPOSITORY_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-500 hover:text-gray-300 transition-colors"
-              title="sonnguyenhoang.com"
+              title={REPOSITORY_LABEL}
             >
               <Globe className="w-3.5 h-3.5" />
             </a>

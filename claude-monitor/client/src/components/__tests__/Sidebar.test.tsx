@@ -67,5 +67,7 @@ describe("Sidebar", () => {
     expect(hrefs).toContain("/openspec");
     expect(hrefs).toContain("/sessions");
     expect(hrefs).toContain("/activity");
+    expect(hrefs).toContain("https://github.com/Catsofsuffering");
+    expect(hrefs).toContain("https://github.com/Catsofsuffering/CCGS");
   });
 });

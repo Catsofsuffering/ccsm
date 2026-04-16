@@ -75,7 +75,6 @@ interface InstallConfig {
     review: { models: string[] }
     geminiModel?: string
   }
-  liteMode: boolean
   mcpProvider: string
   skipImpeccable?: boolean
 }
@@ -424,7 +423,6 @@ export async function installWorkflows(
       review?: { models?: string[] }
       geminiModel?: string
     }
-    liteMode?: boolean
     mcpProvider?: string
     skipImpeccable?: boolean
     codexHomeDir?: string
@@ -441,7 +439,6 @@ export async function installWorkflows(
         backend: { models: ['codex'], primary: 'codex' },
         review: { models: ['codex'] },
       },
-      liteMode: config?.liteMode || false,
       mcpProvider: config?.mcpProvider || 'ace-tool',
       skipImpeccable: config?.skipImpeccable || false,
     },

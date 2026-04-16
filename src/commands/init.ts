@@ -165,8 +165,6 @@ export async function init(options: InitOptions = {}): Promise<void> {
     }
   }
 
-  // Performance mode selection
-  let liteMode = false
   let skipImpeccable = false
 
   // MCP Tool Selection
@@ -495,25 +493,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
   // Step 3/3: Performance Mode
   // ═══════════════════════════════════════════════════════
   if (!options.skipPrompt) {
-    const existingConfig = await readCcgConfig()
-    const currentLiteMode = existingConfig?.performance?.liteMode || false
-
     console.log()
-    console.log(ansis.cyan.bold(`  ⚡ Step 4/4 — ${i18n.t('init:perf.title')}`))
+    console.log(ansis.cyan.bold(`  ⚡ Step 4/4 — ${i18n.t('init:commands.title')}`))
     console.log()
-
-    const { perfMode } = await inquirer.prompt([{
-      type: 'list',
-      name: 'perfMode',
-      message: i18n.t('init:perf.selectMode'),
-      choices: [
-        { name: `${ansis.green('●')} ${i18n.t('init:perf.standardOption')}`, value: 'standard' },
-        { name: `${ansis.cyan('●')} ${i18n.t('init:perf.liteOption')}`, value: 'lite' },
-      ],
-      default: currentLiteMode ? 'lite' : 'standard',
-    }])
-
-    liteMode = perfMode === 'lite'
 
     // Impeccable frontend design commands (optional, default: not installed)
     const { includeImpeccable } = await inquirer.prompt([{
@@ -527,9 +509,6 @@ export async function init(options: InitOptions = {}): Promise<void> {
   else {
     // In non-interactive mode (update), preserve existing settings
     const existingConfig = await readCcgConfig()
-    if (existingConfig?.performance?.liteMode !== undefined) {
-      liteMode = existingConfig.performance.liteMode
-    }
     if (existingConfig?.performance?.skipImpeccable !== undefined) {
       skipImpeccable = existingConfig.performance.skipImpeccable
     }
@@ -574,7 +553,6 @@ export async function init(options: InitOptions = {}): Promise<void> {
     return ansis.gray(i18n.t('init:summary.skipped'))
   })()
   console.log(`  ${ansis.cyan(i18n.t('init:summary.mcpTool'))}  ${mcpSummary}`)
-  console.log(`  ${ansis.cyan(i18n.t('init:summary.webUI'))}    ${liteMode ? ansis.gray(i18n.t('init:summary.disabled')) : ansis.green(i18n.t('init:summary.enabled'))}`)
   if (wantGrokSearch) {
     console.log(`  ${ansis.cyan('grok-search')}    ${tavilyKey ? ansis.green('✓') : ansis.yellow(`(${i18n.t('init:summary.pendingConfig')})`)}`)
   }
@@ -643,7 +621,6 @@ export async function init(options: InitOptions = {}): Promise<void> {
       routing,
       installedWorkflows: selectedWorkflows,
       mcpProvider,
-      liteMode,
       skipImpeccable,
       ownership: {
         orchestrator,
@@ -659,7 +636,6 @@ export async function init(options: InitOptions = {}): Promise<void> {
     const installDir = options.installDir || getDefaultInstallDir()
     const result = await installWorkflows(selectedWorkflows, installDir, options.force, {
       routing,
-      liteMode,
       mcpProvider,
       skipImpeccable,
     })
