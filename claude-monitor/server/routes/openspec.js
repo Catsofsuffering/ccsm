@@ -7,6 +7,8 @@ const { db } = require("../db");
 
 const execFileAsync = promisify(execFile);
 const router = Router();
+const OPEN_SPEC_CACHE_TTL_MS = Number(process.env.OPENSPEC_BOARD_CACHE_TTL_MS || 5000);
+let boardCache = null;
 
 const STAGE_ORDER = ["proposal", "design", "specs", "tasks", "implementing", "complete"];
 const STAGE_LABELS = {
@@ -77,6 +79,46 @@ function resolveWorkspaceRoot() {
   throw new Error("OpenSpec workspace not found");
 }
 
+function resolveOpenSpecRunner() {
+  if (process.platform !== "win32") {
+    return {
+      command: "openspec",
+      baseArgs: [],
+    };
+  }
+
+  const appData =
+    process.env.APPDATA
+    || (process.env.USERPROFILE
+      ? path.join(process.env.USERPROFILE, "AppData", "Roaming")
+      : null);
+
+  if (appData) {
+    const openspecScript = path.join(
+      appData,
+      "npm",
+      "node_modules",
+      "@fission-ai",
+      "openspec",
+      "bin",
+      "openspec.js"
+    );
+
+    if (fs.existsSync(openspecScript)) {
+      return {
+        command: process.execPath || "node",
+        baseArgs: [openspecScript],
+      };
+    }
+  }
+
+  return {
+    command: "powershell.exe",
+    baseArgs: ["-NoProfile", "-Command", "& openspec"],
+    needsShellJoin: true,
+  };
+}
+
 async function runOpenSpecJson(args, cwd) {
   try {
     const options = {
@@ -85,18 +127,16 @@ async function runOpenSpecJson(args, cwd) {
       timeout: 15000,
       maxBuffer: 1024 * 1024,
     };
-    const result =
-      process.platform === "win32"
-        ? await execFileAsync(
-            "powershell.exe",
-            [
-              "-NoProfile",
-              "-Command",
-              `& openspec ${args.map((arg) => `'${String(arg).replace(/'/g, "''")}'`).join(" ")}`,
-            ],
-            options
-          )
-        : await execFileAsync("openspec", args, options);
+    const runner = resolveOpenSpecRunner();
+    const runnerArgs = runner.needsShellJoin
+      ? [
+          ...runner.baseArgs.slice(0, -1),
+          `${runner.baseArgs.at(-1)} ${args
+            .map((arg) => `'${String(arg).replace(/'/g, "''")}'`)
+            .join(" ")}`,
+        ]
+      : [...runner.baseArgs, ...args];
+    const result = await execFileAsync(runner.command, runnerArgs, options);
     const { stdout } = result;
 
     return JSON.parse(stdout);
@@ -138,6 +178,56 @@ function parseTaskProgress(tasksPath, fallbackCompleted = 0, fallbackTotal = 0) 
   };
 }
 
+function readLastModified(dirPath) {
+  const stack = [dirPath];
+  let latest = 0;
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    const stat = fs.statSync(current);
+    latest = Math.max(latest, stat.mtimeMs);
+
+    if (!stat.isDirectory()) continue;
+
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      stack.push(path.join(current, entry.name));
+    }
+  }
+
+  return latest > 0 ? new Date(latest).toISOString() : null;
+}
+
+function readLocalChanges(workspaceRoot) {
+  const changesDir = path.join(workspaceRoot, "openspec", "changes");
+
+  if (!fs.existsSync(changesDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(changesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== "archive" && !entry.name.startsWith("."))
+    .map((entry) => {
+      const changeDir = path.join(changesDir, entry.name);
+      const taskProgress = parseTaskProgress(path.join(changeDir, "tasks.md"));
+
+      return {
+        name: entry.name,
+        completedTasks: taskProgress.completed,
+        totalTasks: taskProgress.total,
+        lastModified: readLastModified(changeDir),
+        status:
+          taskProgress.total > 0 && taskProgress.completed === taskProgress.total
+            ? "complete"
+            : taskProgress.total === 0
+              ? "no-tasks"
+              : "in-progress",
+      };
+    });
+}
+
 function deriveStage(status, listStatus) {
   const artifacts = Array.isArray(status.artifacts) ? status.artifacts : [];
   const nextPendingArtifact = artifacts.find((artifact) => artifact.status !== "done");
@@ -171,66 +261,85 @@ function normalizeArtifact(artifact) {
   };
 }
 
+async function buildBoardPayload(workspaceRoot) {
+  const listChanges = readLocalChanges(workspaceRoot);
+
+  const changes = await Promise.all(
+    listChanges.map(async (change) => {
+      const status = await runOpenSpecJson(
+        ["status", "--change", change.name, "--json"],
+        workspaceRoot
+      );
+      const artifacts = (status.artifacts || []).map(normalizeArtifact);
+      const taskProgress = parseTaskProgress(
+        path.join(workspaceRoot, "openspec", "changes", change.name, "tasks.md"),
+        change.completedTasks,
+        change.totalTasks
+      );
+      const { stage, nextArtifact } = deriveStage(status, change.status);
+
+      return {
+        name: change.name,
+        status: change.status,
+        stage,
+        stageLabel: STAGE_LABELS[stage],
+        lastModified: change.lastModified,
+        nextArtifact,
+        readyToApply: Boolean(status.isComplete),
+        applyRequires: status.applyRequires || [],
+        artifactSummary: {
+          done: artifacts.filter((artifact) => artifact.done).length,
+          total: artifacts.length,
+        },
+        taskProgress,
+        completedTasks: taskProgress.completed,
+        totalTasks: taskProgress.total,
+        artifacts,
+        changePath: path.join("openspec", "changes", change.name).replace(/\\/g, "/"),
+      };
+    })
+  );
+
+  const sortedChanges = changes.sort((left, right) => {
+    const stageOrder =
+      STAGE_ORDER.indexOf(left.stage) - STAGE_ORDER.indexOf(right.stage);
+    if (stageOrder !== 0) return stageOrder;
+    return (right.lastModified || "").localeCompare(left.lastModified || "");
+  });
+
+  const stages = STAGE_ORDER.map((stage) => ({
+    id: stage,
+    label: STAGE_LABELS[stage],
+    count: sortedChanges.filter((change) => change.stage === stage).length,
+  }));
+
+  return {
+    workspaceRoot,
+    stages,
+    changes: sortedChanges,
+  };
+}
+
 router.get("/changes", async (_req, res) => {
   try {
     const workspaceRoot = resolveWorkspaceRoot();
-    const listResult = await runOpenSpecJson(["list", "--json"], workspaceRoot);
-    const listChanges = Array.isArray(listResult.changes) ? listResult.changes : [];
+    if (
+      boardCache
+      && boardCache.workspaceRoot === workspaceRoot
+      && boardCache.expiresAt > Date.now()
+    ) {
+      res.json(boardCache.payload);
+      return;
+    }
 
-    const changes = await Promise.all(
-      listChanges.map(async (change) => {
-        const status = await runOpenSpecJson(
-          ["status", "--change", change.name, "--json"],
-          workspaceRoot
-        );
-        const artifacts = (status.artifacts || []).map(normalizeArtifact);
-        const taskProgress = parseTaskProgress(
-          path.join(workspaceRoot, "openspec", "changes", change.name, "tasks.md"),
-          change.completedTasks,
-          change.totalTasks
-        );
-        const { stage, nextArtifact } = deriveStage(status, change.status);
-
-        return {
-          name: change.name,
-          status: change.status,
-          stage,
-          stageLabel: STAGE_LABELS[stage],
-          lastModified: change.lastModified,
-          nextArtifact,
-          readyToApply: Boolean(status.isComplete),
-          applyRequires: status.applyRequires || [],
-          artifactSummary: {
-            done: artifacts.filter((artifact) => artifact.done).length,
-            total: artifacts.length,
-          },
-          taskProgress,
-          completedTasks: taskProgress.completed,
-          totalTasks: taskProgress.total,
-          artifacts,
-          changePath: path.join("openspec", "changes", change.name).replace(/\\/g, "/"),
-        };
-      })
-    );
-
-    const sortedChanges = changes.sort((left, right) => {
-      const stageOrder =
-        STAGE_ORDER.indexOf(left.stage) - STAGE_ORDER.indexOf(right.stage);
-      if (stageOrder !== 0) return stageOrder;
-      return (right.lastModified || "").localeCompare(left.lastModified || "");
-    });
-
-    const stages = STAGE_ORDER.map((stage) => ({
-      id: stage,
-      label: STAGE_LABELS[stage],
-      count: sortedChanges.filter((change) => change.stage === stage).length,
-    }));
-
-    res.json({
+    const payload = await buildBoardPayload(workspaceRoot);
+    boardCache = {
       workspaceRoot,
-      stages,
-      changes: sortedChanges,
-    });
+      payload,
+      expiresAt: Date.now() + OPEN_SPEC_CACHE_TTL_MS,
+    };
+
+    res.json(payload);
   } catch (error) {
     res.status(503).json({
       error: {
