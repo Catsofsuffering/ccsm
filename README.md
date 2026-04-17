@@ -24,7 +24,7 @@ This repository no longer uses the upstream README as its product story. Upstrea
 - Codex is the workflow owner, not a side model behind another orchestrator.
 - OpenSpec is required for the maintained path, not an optional afterthought.
 - Claude remains important, but primarily as the execution layer.
-- MCP, reusable skills, and Gemini are optional integrations rather than baseline requirements.
+- MCP and reusable skills are optional integrations rather than baseline requirements.
 - Legacy surfaces are not part of the maintained product path.
 
 ## Primary Workflow
@@ -64,7 +64,6 @@ That means the maintained path can start directly inside Codex instead of relyin
 
 Optional:
 
-- Gemini CLI
 - MCP tooling
 - Extra reusable skills
 
@@ -143,14 +142,13 @@ graph TD
     Verify --> Archive["Archive"]
     Codex -. optional .-> MCP["MCP"]
     Codex -. optional .-> Skills["Skills"]
-    Codex -. optional .-> Gemini["Gemini"]
 ```
 
 ## Contributing
 
 - Prefer OpenSpec-first changes over direct ad hoc edits.
 - Keep compatibility flows labeled as compatibility before removing them.
-- Do not assume MCP, skills, or Gemini are mandatory in new product language.
+- Do not assume MCP or extra skills are mandatory in new product language.
 - Keep the maintained path centered on Codex orchestration, Claude Agent Teams execution, and Codex review.
 
 Project workflow and project guidance are documented in [AGENTS.md](./AGENTS.md).

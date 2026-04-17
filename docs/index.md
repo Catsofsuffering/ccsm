@@ -34,7 +34,7 @@ features:
     details: 安装后可直接从 Codex 技能启动主路径，不必再把 Claude 当作唯一宿主入口。
   - icon: 🧩
     title: 可选增强仍可用
-    details: MCP、Gemini 和其他 skills 仍然可接入，但它们不再决定默认产品叙事。
+    details: MCP 和其他 skills 仍然可接入，但它们不再决定默认产品叙事。
 ---
 
 <style>

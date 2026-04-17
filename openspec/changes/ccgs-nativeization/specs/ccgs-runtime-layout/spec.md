@@ -28,6 +28,34 @@ The system SHALL define how existing `ccg`-named runtime directories or generate
 - **WHEN** old generated assets still exist during migration
 - **THEN** the system distinguishes them from the new `ccgs`-owned defaults and avoids treating them as canonical
 
+### Requirement: Maintained runtime ownership follows the active host home
+
+The system SHALL resolve maintained config, prompt, command, backup, and monitor assets from the active host home instead of assuming `~/.claude` for every maintained surface. Host-aware runtime resolution MUST support Codex-owned and Claude-owned installs while still honoring legacy migration logic.
+
+#### Scenario: Codex-owned maintained install is created
+
+- **WHEN** the maintained install path is driven by Codex ownership
+- **THEN** the default `ccgs` runtime paths resolve under the Codex home boundary rather than silently using `~/.claude`
+
+#### Scenario: Claude execution runtime is prepared
+
+- **WHEN** Claude-owned execution helpers or monitor assets are installed
+- **THEN** those runtime paths resolve under the Claude home boundary while keeping the same `ccgs` namespace and migration behavior
+
+### Requirement: Host-owned runtime supports generalized workflow roles
+
+The system SHALL support host-owned runtime configuration for a generalized Codex/Claude role model. Runtime ownership MUST follow the selected host role instead of assuming Codex always orchestrates or Claude always executes.
+
+#### Scenario: Claude is chosen for orchestration
+
+- **WHEN** Claude is configured as the orchestrator host
+- **THEN** the maintained runtime/config surfaces needed for orchestration resolve through Claude-owned home paths without breaking the `ccgs` namespace
+
+#### Scenario: Codex is chosen for execution
+
+- **WHEN** Codex is configured as the execution host
+- **THEN** the maintained runtime/config surfaces needed for execution resolve through Codex-owned home paths without falling back to Claude-owned defaults
+
 ### Requirement: Verification guards against identity regressions
 
 The system SHALL include verification that distinguishes canonical `ccgs` surfaces from approved compatibility or historical `ccg` references. Maintained source changes MUST be verifiable against that boundary.

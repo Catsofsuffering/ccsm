@@ -35,7 +35,7 @@
 - Claude 执行
 - Codex 审核与验收
 
-Gemini 是可选增强，不再是默认流程前提。
+当前默认只维护 Codex/Claude 的 prompts 和 host surface。
 
 ## 监控运行时
 

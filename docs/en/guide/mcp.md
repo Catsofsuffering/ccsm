@@ -28,7 +28,6 @@ Then choose `Configure MCP`.
 When configured, MCP settings can be synchronized to:
 
 - `~/.codex/config.toml`
-- `~/.gemini/settings.json`
 
 This is an enhancement path. It is not required for the default Codex -> Claude Agent Teams -> Codex flow.
 
@@ -39,5 +38,5 @@ Claude hooks are now used for the local monitor, not for wrapper auto-authorizat
 To repair hook setup:
 
 ```bash
-ccg monitor hooks
+ccgs monitor hooks
 ```

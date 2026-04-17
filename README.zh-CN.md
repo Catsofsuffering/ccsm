@@ -9,7 +9,7 @@
 3. Claude Agent Teams 负责实现执行。
 4. Codex 负责 review、测试、acceptance 和 archive。
 
-`MCP`、skills、Gemini 仍可作为增强层使用，但它们不再是主路径前提。
+`MCP` 和额外 skills 仍可作为增强层使用，但它们不再是主路径前提。
 
 ## 主工作流
 

@@ -281,10 +281,10 @@ export async function uninstallMcpServer(id: string): Promise<{ success: boolean
 
 // ═══════════════════════════════════════════════════════
 // MCP Sync — Mirror CCG-relevant MCP servers
-// to Codex (~/.codex/config.toml) and Gemini (~/.gemini/settings.json)
+// to Codex (~/.codex/config.toml)
 // ═══════════════════════════════════════════════════════
 
-/** MCP server IDs that CCG manages and should sync to Codex/Gemini */
+/** MCP server IDs that CCG manages and should sync to Codex */
 const CCG_MCP_IDS = new Set([
   'grok-search',
   'context7',
@@ -406,39 +406,3 @@ export async function syncMcpToCodex(): Promise<SyncResult> {
   }
 }
 
-/**
- * Sync (mirror) CCG-managed MCP servers from Claude's ~/.claude.json
- * to Gemini CLI's ~/.gemini/settings.json
- */
-export async function syncMcpToGemini(): Promise<SyncResult> {
-  try {
-    const serversToSync = await getCcgMcpServersFromClaude()
-
-    // Read or create Gemini settings
-    const geminiDir = join(homedir(), '.gemini')
-    const geminiSettingsPath = join(geminiDir, 'settings.json')
-    await fs.ensureDir(geminiDir)
-
-    let geminiSettings: Record<string, any> = {}
-    if (await fs.pathExists(geminiSettingsPath)) {
-      geminiSettings = await fs.readJSON(geminiSettingsPath)
-    }
-
-    if (!geminiSettings.mcpServers) {
-      geminiSettings.mcpServers = {}
-    }
-
-    const { synced, removed } = mirrorCcgServers(serversToSync, geminiSettings.mcpServers)
-
-    if (synced.length === 0 && removed.length === 0) {
-      return { success: true, message: 'No CCG MCP servers to sync to Gemini', synced: [], removed: [] }
-    }
-
-    await fs.writeJSON(geminiSettingsPath, geminiSettings, { spaces: 2 })
-
-    return { success: true, message: formatSyncMessage('Gemini', synced, removed), synced, removed }
-  }
-  catch (error) {
-    return { success: false, message: `Failed to sync MCP to Gemini: ${error}`, synced: [], removed: [] }
-  }
-}

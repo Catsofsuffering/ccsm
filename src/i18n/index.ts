@@ -187,10 +187,8 @@ const zhCN = {
       selectOrchestrator: '选择工作流编排器',
       selectFrontend: '选择前端模型',
       selectBackend: '选择后端模型',
-      selectGeminiModel: 'Gemini 模型型号',
       recommended: '推荐',
       custom: '自定义...',
-      enterCustomModel: '输入自定义 Gemini 模型名称',
       currentRouting: '当前模型路由',
       routingUpdated: '模型路由已更新',
       reinstalling: '正在重装模板以应用新配置...',
@@ -220,7 +218,6 @@ const zhCN = {
     },
     models: {
       codex: 'Codex - 擅长后端逻辑、算法、调试',
-      gemini: 'Gemini - 擅长前端UI、CSS、组件设计',
       claude: 'Claude - 擅长编排、重构、文档生成',
     },
     workflows: {
@@ -654,10 +651,8 @@ const en: typeof zhCN = {
       selectOrchestrator: 'Select workflow orchestrator',
       selectFrontend: 'Select frontend model',
       selectBackend: 'Select backend model',
-      selectGeminiModel: 'Gemini model name',
       recommended: 'Recommended',
       custom: 'Custom...',
-      enterCustomModel: 'Enter custom Gemini model name',
       currentRouting: 'Current model routing',
       routingUpdated: 'Model routing updated',
       reinstalling: 'Reinstalling templates with new config...',
@@ -687,7 +682,6 @@ const en: typeof zhCN = {
     },
     models: {
       codex: 'Codex - Backend logic, algorithms, debugging',
-      gemini: 'Gemini - Frontend UI, CSS, component design',
       claude: 'Claude - Orchestration, refactoring, documentation',
     },
     workflows: {

@@ -67,7 +67,6 @@ export function injectConfigVariables(content: string, config: {
 
   const routingMode = routing.mode || 'smart'
   processed = processed.replace(/\{\{ROUTING_MODE\}\}/g, routingMode)
-  processed = processed.replace(/\{\{GEMINI_MODEL_FLAG\}\}/g, '')
 
   const mcpProvider = config.mcpProvider || 'ace-tool'
   if (mcpProvider === 'skip') {
