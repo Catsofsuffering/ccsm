@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.21] - 2026-04-17
+
+### Changed
+
+- Stabilized the local Claude monitor runtime by fixing detached monitor startup, accepting single-dash long options such as `-detach`, and tightening runtime reuse and launch behavior for the installed `.ccgs` monitor surface.
+- Improved workflow observability by closing stale idle sessions automatically, making the focused `Agent Orchestration Graph` render the real agent/team hierarchy with adaptive node sizing, syncing focused-session data into the other workflow analytics panels, and aligning light-mode tooltips with the neutral white/black/gray theme.
+
+---
+
 ## [2.1.20] - 2026-04-17
 
 ### Changed
