@@ -104,6 +104,41 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS control_plane_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_name TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK(action_type IN ('replay', 'reopen')),
+    status TEXT NOT NULL DEFAULT 'requested' CHECK(status IN ('requested', 'acknowledged', 'completed', 'rejected')),
+    source TEXT NOT NULL DEFAULT 'human',
+    notes TEXT,
+    payload TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS control_plane_dispatches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_name TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK(action_type IN ('replay', 'reopen')),
+    adapter_id TEXT,
+    runtime TEXT,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'completed', 'failed', 'blocked')),
+    source TEXT NOT NULL DEFAULT 'human',
+    action_id INTEGER,
+    command TEXT,
+    prompt TEXT,
+    payload TEXT,
+    pid INTEGER,
+    error TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (action_id) REFERENCES control_plane_actions(id) ON DELETE SET NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id);
   CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
   CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
@@ -111,6 +146,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
   CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_control_plane_actions_project ON control_plane_actions(project_name, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_control_plane_dispatches_project ON control_plane_dispatches(project_name, created_at DESC);
 `);
 
 // Seed default model pricing if table is empty
@@ -443,6 +480,41 @@ const stmts = {
   avgEventsPerSession: db.prepare(`
     SELECT ROUND(CAST(COUNT(*) AS REAL) / MAX(1, (SELECT COUNT(*) FROM sessions)), 1) as avg
     FROM events
+  `),
+  listControlPlaneActionsByProject: db.prepare(`
+    SELECT *
+    FROM control_plane_actions
+    WHERE project_name = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `),
+  insertControlPlaneAction: db.prepare(`
+    INSERT INTO control_plane_actions (project_name, node_id, action_type, status, source, notes, payload, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  `),
+  getControlPlaneActionById: db.prepare("SELECT * FROM control_plane_actions WHERE id = ?"),
+  listControlPlaneDispatchesByProject: db.prepare(`
+    SELECT *
+    FROM control_plane_dispatches
+    WHERE project_name = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `),
+  insertControlPlaneDispatch: db.prepare(`
+    INSERT INTO control_plane_dispatches
+      (project_name, node_id, action_type, adapter_id, runtime, status, source, action_id, command, prompt, payload, pid, error, started_at, completed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  `),
+  getControlPlaneDispatchById: db.prepare("SELECT * FROM control_plane_dispatches WHERE id = ?"),
+  updateControlPlaneDispatchState: db.prepare(`
+    UPDATE control_plane_dispatches
+    SET status = ?,
+        pid = COALESCE(?, pid),
+        error = ?,
+        started_at = COALESCE(?, started_at),
+        completed_at = COALESCE(?, completed_at),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE id = ?
   `),
 };
 

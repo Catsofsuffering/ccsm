@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useCallback } from "react";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
+import { ControlPlane } from "./pages/ControlPlane";
 import { KanbanBoard } from "./pages/KanbanBoard";
 import { OpenSpecBoard } from "./pages/OpenSpecBoard";
 import { Sessions } from "./pages/Sessions";
@@ -35,6 +36,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout wsConnected={connected} />}>
           <Route index element={<Dashboard />} />
+          <Route path="control-plane" element={<ControlPlane />} />
           <Route path="kanban" element={<KanbanBoard />} />
           <Route path="openspec" element={<OpenSpecBoard />} />
           <Route path="sessions" element={<Sessions />} />

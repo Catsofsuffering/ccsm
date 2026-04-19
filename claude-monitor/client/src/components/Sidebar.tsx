@@ -7,6 +7,7 @@
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
+  Network,
   Columns3,
   FileText,
   FolderOpen,
@@ -27,6 +28,7 @@ import type { Theme } from "../lib/theme";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/control-plane", icon: Network, label: "Control Plane" },
   { to: "/kanban", icon: Columns3, label: "Agent Board" },
   { to: "/openspec", icon: FileText, label: "OpenSpec Board" },
   { to: "/sessions", icon: FolderOpen, label: "Sessions" },

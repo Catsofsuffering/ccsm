@@ -24,12 +24,18 @@ function humanizeChangeName(name: string): string {
 }
 
 function statusLabel(change: OpenSpecChange): string {
+  if (change.controlPlane.state !== "idle" && change.controlPlane.state !== "active") {
+    return change.controlPlane.label;
+  }
   if (change.stage === "complete") return "Completed";
   if (change.stage === "implementing") return change.readyToApply ? "Ready for execution" : "Executing";
   return change.stageLabel;
 }
 
 function summaryLine(change: OpenSpecChange): string {
+  if (change.controlPlane.state !== "idle" && change.controlPlane.state !== "active") {
+    return change.controlPlane.summary;
+  }
   if (change.stage === "complete") return "Change marked complete in OpenSpec";
   if (change.stage === "implementing") {
     return change.readyToApply
@@ -39,6 +45,19 @@ function summaryLine(change: OpenSpecChange): string {
   return change.nextArtifact
     ? `Next artifact: ${change.nextArtifact}`
     : "Waiting for the next artifact step";
+}
+
+function lifecycleBadgeClass(change: OpenSpecChange): string {
+  const state = change.controlPlane.state;
+  if (state === "blocked") {
+    return "border-gray-400/30 bg-gray-500/10 text-gray-200";
+  }
+  if (["dispatching", "executing", "reopened", "replaying", "ready", "completed"].includes(state)) {
+    return "border-accent/30 bg-accent-muted text-accent";
+  }
+  return change.stage === "implementing" || change.stage === "complete"
+    ? "border-accent/30 bg-accent-muted text-accent"
+    : "border-border text-gray-400";
 }
 
 export function OpenSpecBoard() {
@@ -71,6 +90,10 @@ export function OpenSpecBoard() {
   const readyChanges = changes.filter(
     (change) => change.stage === "implementing" && change.readyToApply
   ).length;
+  const dispatchingChanges = changes.filter((change) =>
+    ["dispatching", "executing", "reopened", "replaying"].includes(change.controlPlane.state)
+  ).length;
+  const blockedChanges = changes.filter((change) => change.controlPlane.state === "blocked").length;
   const completedChanges = changes.filter((change) => change.stage === "complete").length;
   const emptyStageCount = stages.filter((stage) => stage.count === 0).length;
 
@@ -208,6 +231,14 @@ export function OpenSpecBoard() {
           <div className="text-xs text-gray-500 mt-0.5">Ready To Apply</div>
         </div>
         <div>
+          <div className="text-2xl font-semibold text-gray-100">{dispatchingChanges}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Runtime Active</div>
+        </div>
+        <div>
+          <div className="text-2xl font-semibold text-gray-100">{blockedChanges}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Blocked</div>
+        </div>
+        <div>
           <div className="text-2xl font-semibold text-gray-100">{completedChanges}</div>
           <div className="text-xs text-gray-500 mt-0.5">Completed</div>
         </div>
@@ -270,11 +301,7 @@ export function OpenSpecBoard() {
                           <p className="text-[11px] text-gray-500 mt-1 break-all">{change.name}</p>
                         </div>
                         <span
-                          className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] border ${
-                            change.stage === "implementing" || change.stage === "complete"
-                              ? "border-accent/30 bg-accent-muted text-accent"
-                              : "border-border text-gray-400"
-                          }`}
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] border ${lifecycleBadgeClass(change)}`}
                         >
                           {statusLabel(change)}
                         </span>
@@ -327,6 +354,20 @@ export function OpenSpecBoard() {
                           <span>{change.taskProgress.percent}%</span>
                         </div>
                       </div>
+
+                      {(change.controlPlane.latestDispatch || change.controlPlane.latestAction) && (
+                        <div className="rounded-md border border-border px-2 py-2 text-[11px] text-gray-500">
+                          {change.controlPlane.latestDispatch ? (
+                            <span>
+                              Dispatch: {change.controlPlane.latestDispatch.status} / {change.controlPlane.latestDispatch.adapterId || "unassigned"}
+                            </span>
+                          ) : change.controlPlane.latestAction ? (
+                            <span>
+                              Action: {change.controlPlane.latestAction.actionType} / {change.controlPlane.latestAction.status}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
 
                       <div className="flex items-center justify-between gap-3 text-[11px] text-gray-600">
                         <span className="truncate">{change.changePath}</span>

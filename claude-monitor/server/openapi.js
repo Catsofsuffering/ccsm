@@ -64,6 +64,7 @@ function createOpenApiSpec() {
       { name: "Pricing", description: "Model pricing and token cost calculations" },
       { name: "Workflows", description: "Workflow intelligence and session drill-in" },
       { name: "OpenSpec", description: "Read-only OpenSpec change board data" },
+      { name: "ControlPlane", description: "OpenSpec-backed orchestration control-plane state" },
       { name: "Settings", description: "Operational maintenance endpoints" },
       { name: "Documentation", description: "OpenAPI/Swagger endpoints" },
     ],
@@ -89,6 +90,13 @@ function createOpenApiSpec() {
           required: true,
           schema: { type: "string" },
           description: "Model pattern (URL-encoded)",
+        },
+        ControlPlaneProjectPath: {
+          name: "name",
+          in: "path",
+          required: true,
+          schema: { type: "string" },
+          description: "OpenSpec project/change name",
         },
         LimitQuery: {
           name: "limit",
@@ -1420,7 +1428,7 @@ function createOpenApiSpec() {
                         type: "array",
                         items: {
                           type: "object",
-                          required: ["name", "status", "stage", "stageLabel", "artifacts"],
+                          required: ["name", "status", "stage", "stageLabel", "artifacts", "controlPlane"],
                           properties: {
                             name: { type: "string" },
                             status: { type: "string" },
@@ -1452,6 +1460,70 @@ function createOpenApiSpec() {
                             completedTasks: { type: "integer" },
                             totalTasks: { type: "integer" },
                             changePath: { type: "string" },
+                            controlPlane: {
+                              type: "object",
+                              required: ["state", "label", "summary", "latestAction", "latestDispatch", "updatedAt"],
+                              properties: {
+                                state: {
+                                  type: "string",
+                                  enum: [
+                                    "idle",
+                                    "active",
+                                    "ready",
+                                    "reopened",
+                                    "replaying",
+                                    "dispatching",
+                                    "executing",
+                                    "blocked",
+                                    "completed",
+                                  ],
+                                },
+                                label: { type: "string" },
+                                summary: { type: "string" },
+                                latestAction: {
+                                  type: "object",
+                                  nullable: true,
+                                  properties: {
+                                    id: { type: "integer" },
+                                    nodeId: { type: "string" },
+                                    actionType: { type: "string", enum: ["replay", "reopen"] },
+                                    status: { type: "string" },
+                                    source: { type: "string" },
+                                    notes: { type: "string", nullable: true },
+                                    payload: { type: "object", nullable: true, additionalProperties: true },
+                                    createdAt: { type: "string", format: "date-time" },
+                                    updatedAt: { type: "string", format: "date-time" },
+                                  },
+                                },
+                                latestDispatch: {
+                                  type: "object",
+                                  nullable: true,
+                                  properties: {
+                                    id: { type: "integer" },
+                                    nodeId: { type: "string" },
+                                    actionType: { type: "string", enum: ["replay", "reopen"] },
+                                    adapterId: { type: "string", nullable: true },
+                                    runtime: { type: "string", nullable: true },
+                                    status: {
+                                      type: "string",
+                                      enum: ["queued", "running", "completed", "failed", "blocked"],
+                                    },
+                                    source: { type: "string" },
+                                    actionId: { type: "integer", nullable: true },
+                                    command: { type: "string", nullable: true },
+                                    prompt: { type: "string", nullable: true },
+                                    payload: { type: "object", nullable: true, additionalProperties: true },
+                                    pid: { type: "integer", nullable: true },
+                                    error: { type: "string", nullable: true },
+                                    startedAt: { type: "string", format: "date-time", nullable: true },
+                                    completedAt: { type: "string", format: "date-time", nullable: true },
+                                    createdAt: { type: "string", format: "date-time" },
+                                    updatedAt: { type: "string", format: "date-time" },
+                                  },
+                                },
+                                updatedAt: { type: "string", format: "date-time", nullable: true },
+                              },
+                            },
                             artifacts: {
                               type: "array",
                               items: {
@@ -1474,6 +1546,534 @@ function createOpenApiSpec() {
             },
             503: {
               description: "OpenSpec state unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/control-plane/overview": {
+        get: {
+          tags: ["ControlPlane"],
+          summary: "Get control-plane overview for OpenSpec-backed projects",
+          operationId: "getControlPlaneOverview",
+          responses: {
+            200: {
+              description: "Control-plane overview payload",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["workspaceRoot", "generatedAt", "summary", "adapters", "workers", "projects"],
+                    properties: {
+                      workspaceRoot: { type: "string" },
+                      generatedAt: { type: "string", format: "date-time" },
+                      summary: {
+                        type: "object",
+                        properties: {
+                          totalProjects: { type: "integer" },
+                          activeProjects: { type: "integer" },
+                          readyProjects: { type: "integer" },
+                          activeWorkers: { type: "integer" },
+                          runningSessions: { type: "integer" },
+                          availableAdapters: { type: "integer" },
+                        },
+                      },
+                      adapters: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["id", "runtime", "transport", "available", "command", "source", "envKey", "capabilities"],
+                          properties: {
+                            id: { type: "string" },
+                            runtime: { type: "string" },
+                            transport: { type: "string", enum: ["cli"] },
+                            available: { type: "boolean" },
+                            command: { type: "string" },
+                            source: { type: "string", enum: ["env", "path", "unresolved"] },
+                            envKey: { type: "string" },
+                            capabilities: {
+                              type: "object",
+                              properties: {
+                                stages: { type: "array", items: { type: "string" } },
+                                actions: { type: "array", items: { type: "string" } },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      workers: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["id", "runtime", "label", "activeSessions", "totalSessions", "runningAgents"],
+                          properties: {
+                            id: { type: "string" },
+                            runtime: { type: "string" },
+                            label: { type: "string" },
+                            activeSessions: { type: "integer" },
+                            totalSessions: { type: "integer" },
+                            runningAgents: { type: "integer" },
+                            lastActivity: { type: "string", format: "date-time", nullable: true },
+                          },
+                        },
+                      },
+                      projects: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["name", "title", "stage", "stageLabel", "readyToApply", "artifactSummary", "taskProgress", "graphSummary"],
+                          properties: {
+                            name: { type: "string" },
+                            title: { type: "string" },
+                            stage: { type: "string" },
+                            stageLabel: { type: "string" },
+                            updatedAt: { type: "string", format: "date-time", nullable: true },
+                            readyToApply: { type: "boolean" },
+                            nextArtifact: { type: "string", nullable: true },
+                            changePath: { type: "string" },
+                            artifactSummary: {
+                              type: "object",
+                              properties: {
+                                done: { type: "integer" },
+                                total: { type: "integer" },
+                              },
+                            },
+                            taskProgress: {
+                              type: "object",
+                              properties: {
+                                completed: { type: "integer" },
+                                total: { type: "integer" },
+                                remaining: { type: "integer" },
+                                percent: { type: "integer" },
+                              },
+                            },
+                            sessionCount: { type: "integer" },
+                            activeRunCount: { type: "integer" },
+                            workerRuntimes: {
+                              type: "array",
+                              items: { type: "string" },
+                            },
+                            actionCount: { type: "integer" },
+                            latestActionAt: { type: "string", format: "date-time", nullable: true },
+                            dispatchCount: { type: "integer" },
+                            latestDispatchAt: { type: "string", format: "date-time", nullable: true },
+                            dispatch: {
+                              type: "object",
+                              properties: {
+                                preferredAdapterId: { type: "string", nullable: true },
+                                preferredRuntime: { type: "string", nullable: true },
+                                command: { type: "string", nullable: true },
+                                availableAdapters: { type: "array", items: { type: "string" } },
+                                reason: { type: "string" },
+                              },
+                            },
+                            graphSummary: {
+                              type: "object",
+                              properties: {
+                                totalNodes: { type: "integer" },
+                                totalEdges: { type: "integer" },
+                                runningNodes: { type: "integer" },
+                                completedNodes: { type: "integer" },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            503: {
+              description: "Control-plane state unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/control-plane/projects/{name}": {
+        get: {
+          tags: ["ControlPlane"],
+          summary: "Get one control-plane project with blackboard and graph state",
+          operationId: "getControlPlaneProject",
+          parameters: [{ $ref: "#/components/parameters/ControlPlaneProjectPath" }],
+          responses: {
+            200: {
+              description: "Control-plane project detail",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["workspaceRoot", "generatedAt", "project", "blackboard", "actions", "dispatches", "adapters", "dispatch", "workers", "workerHealth", "sessions", "activity", "graph"],
+                    properties: {
+                      workspaceRoot: { type: "string" },
+                      generatedAt: { type: "string", format: "date-time" },
+                      project: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          title: { type: "string" },
+                          stage: { type: "string" },
+                          stageLabel: { type: "string" },
+                          readyToApply: { type: "boolean" },
+                          changeDir: { type: "string" },
+                        },
+                      },
+                      blackboard: {
+                        type: "object",
+                        properties: {
+                          facts: { type: "array", items: { type: "object" } },
+                          intents: { type: "array", items: { type: "object" } },
+                          hints: { type: "array", items: { type: "object" } },
+                          settings: { type: "array", items: { type: "object" } },
+                        },
+                      },
+                      actions: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            projectName: { type: "string" },
+                            nodeId: { type: "string" },
+                            actionType: { type: "string", enum: ["replay", "reopen"] },
+                            status: { type: "string" },
+                            source: { type: "string" },
+                            notes: { type: "string", nullable: true },
+                            payload: { type: "object", nullable: true, additionalProperties: true },
+                            createdAt: { type: "string", format: "date-time" },
+                            updatedAt: { type: "string", format: "date-time" },
+                          },
+                        },
+                      },
+                      dispatches: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            projectName: { type: "string" },
+                            nodeId: { type: "string" },
+                            actionType: { type: "string", enum: ["replay", "reopen"] },
+                            adapterId: { type: "string", nullable: true },
+                            runtime: { type: "string", nullable: true },
+                            status: {
+                              type: "string",
+                              enum: ["queued", "running", "completed", "failed", "blocked"],
+                            },
+                            source: { type: "string" },
+                            actionId: { type: "integer", nullable: true },
+                            command: { type: "string", nullable: true },
+                            prompt: { type: "string", nullable: true },
+                            payload: { type: "object", nullable: true, additionalProperties: true },
+                            pid: { type: "integer", nullable: true },
+                            error: { type: "string", nullable: true },
+                            startedAt: { type: "string", format: "date-time", nullable: true },
+                            completedAt: { type: "string", format: "date-time", nullable: true },
+                            createdAt: { type: "string", format: "date-time" },
+                            updatedAt: { type: "string", format: "date-time" },
+                          },
+                        },
+                      },
+                      adapters: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            runtime: { type: "string" },
+                            transport: { type: "string", enum: ["cli"] },
+                            available: { type: "boolean" },
+                            command: { type: "string" },
+                            source: { type: "string", enum: ["env", "path", "unresolved"] },
+                            envKey: { type: "string" },
+                            capabilities: {
+                              type: "object",
+                              properties: {
+                                stages: { type: "array", items: { type: "string" } },
+                                actions: { type: "array", items: { type: "string" } },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      dispatch: {
+                        type: "object",
+                        properties: {
+                          preferredAdapterId: { type: "string", nullable: true },
+                          preferredRuntime: { type: "string", nullable: true },
+                          command: { type: "string", nullable: true },
+                          availableAdapters: { type: "array", items: { type: "string" } },
+                          reason: { type: "string" },
+                        },
+                      },
+                      workers: {
+                        type: "array",
+                        items: { type: "object" },
+                      },
+                      workerHealth: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            runtime: { type: "string" },
+                            label: { type: "string" },
+                            adapterId: { type: "string" },
+                            adapterAvailable: { type: "boolean" },
+                            transport: { type: "string", enum: ["cli"] },
+                            source: { type: "string", enum: ["env", "path", "unresolved"] },
+                            command: { type: "string" },
+                            launchReady: { type: "boolean" },
+                            health: {
+                              type: "string",
+                              enum: ["active", "idle", "degraded", "offline", "blocked"],
+                            },
+                            summary: { type: "string" },
+                            observedModels: { type: "array", items: { type: "string" } },
+                            activeSessions: { type: "integer" },
+                            totalSessions: { type: "integer" },
+                            runningAgents: { type: "integer" },
+                            queuedDispatches: { type: "integer" },
+                            runningDispatches: { type: "integer" },
+                            blockedDispatches: { type: "integer" },
+                            failedDispatches: { type: "integer" },
+                            completedDispatches: { type: "integer" },
+                            lastActivity: { type: "string", format: "date-time", nullable: true },
+                            lastError: { type: "string", nullable: true },
+                          },
+                        },
+                      },
+                      sessions: {
+                        type: "array",
+                        items: { type: "object" },
+                      },
+                      activity: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            type: { type: "string", enum: ["event", "action", "dispatch"] },
+                            timestamp: { type: "string", format: "date-time" },
+                            title: { type: "string" },
+                            detail: { type: "string", nullable: true },
+                            status: { type: "string", nullable: true },
+                            source: { type: "string", nullable: true },
+                            sessionId: { type: "string", nullable: true },
+                            nodeId: { type: "string", nullable: true },
+                            runtime: { type: "string", nullable: true },
+                            toolName: { type: "string", nullable: true },
+                            relatedNodeIds: { type: "array", items: { type: "string" } },
+                          },
+                        },
+                      },
+                      graph: {
+                        type: "object",
+                        properties: {
+                          nodes: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                id: { type: "string" },
+                                label: { type: "string" },
+                                subtitle: { type: "string" },
+                                kind: { type: "string" },
+                                status: { type: "string" },
+                                column: { type: "integer" },
+                                dispatcherPhase: {
+                                  type: "string",
+                                  enum: [
+                                    "bootstrap",
+                                    "reason",
+                                    "dispatch",
+                                    "observe",
+                                    "reconcile",
+                                    "complete-or-reopen",
+                                  ],
+                                },
+                                routing: {
+                                  type: "object",
+                                  properties: {
+                                    defaultActionType: {
+                                      type: "string",
+                                      enum: ["replay", "reopen"],
+                                      nullable: true,
+                                    },
+                                    availableActions: {
+                                      type: "array",
+                                      items: { type: "string", enum: ["replay", "reopen"] },
+                                    },
+                                    byAction: {
+                                      type: "object",
+                                      additionalProperties: {
+                                        type: "object",
+                                        properties: {
+                                          preferredAdapterId: { type: "string", nullable: true },
+                                          preferredRuntime: { type: "string", nullable: true },
+                                          command: { type: "string", nullable: true },
+                                          availableAdapters: { type: "array", items: { type: "string" } },
+                                          reason: { type: "string" },
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                                intervention: {
+                                  type: "object",
+                                  nullable: true,
+                                  properties: {
+                                    actionType: { type: "string", enum: ["replay", "reopen"] },
+                                    status: { type: "string" },
+                                    createdAt: { type: "string", format: "date-time" },
+                                    notes: { type: "string", nullable: true },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          edges: { type: "array", items: { type: "object" } },
+                          stats: { type: "object" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            404: {
+              description: "Project not found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            503: {
+              description: "Control-plane state unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/control-plane/projects/{name}/actions": {
+        post: {
+          tags: ["ControlPlane"],
+          summary: "Record a replay or reopen operator action for one project node",
+          operationId: "createControlPlaneAction",
+          parameters: [{ $ref: "#/components/parameters/ControlPlaneProjectPath" }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["nodeId", "actionType"],
+                  properties: {
+                    nodeId: { type: "string" },
+                    actionType: { type: "string", enum: ["replay", "reopen"] },
+                    notes: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Recorded control-plane action",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["dispatch", "intent", "action"],
+                    properties: {
+                      dispatch: {
+                        type: "object",
+                        properties: {
+                          preferredAdapterId: { type: "string", nullable: true },
+                          preferredRuntime: { type: "string", nullable: true },
+                          command: { type: "string", nullable: true },
+                          availableAdapters: { type: "array", items: { type: "string" } },
+                          reason: { type: "string" },
+                        },
+                      },
+                      intent: {
+                        type: "object",
+                        properties: {
+                          id: { type: "integer" },
+                          projectName: { type: "string" },
+                          nodeId: { type: "string" },
+                          actionType: { type: "string", enum: ["replay", "reopen"] },
+                          adapterId: { type: "string", nullable: true },
+                          runtime: { type: "string", nullable: true },
+                          status: {
+                            type: "string",
+                            enum: ["queued", "running", "completed", "failed", "blocked"],
+                          },
+                          source: { type: "string" },
+                          actionId: { type: "integer", nullable: true },
+                          command: { type: "string", nullable: true },
+                          prompt: { type: "string", nullable: true },
+                          payload: { type: "object", nullable: true, additionalProperties: true },
+                          pid: { type: "integer", nullable: true },
+                          error: { type: "string", nullable: true },
+                          startedAt: { type: "string", format: "date-time", nullable: true },
+                          completedAt: { type: "string", format: "date-time", nullable: true },
+                          createdAt: { type: "string", format: "date-time" },
+                          updatedAt: { type: "string", format: "date-time" },
+                        },
+                      },
+                      action: {
+                        type: "object",
+                        properties: {
+                          id: { type: "integer" },
+                          projectName: { type: "string" },
+                          nodeId: { type: "string" },
+                          actionType: { type: "string", enum: ["replay", "reopen"] },
+                          status: { type: "string" },
+                          source: { type: "string" },
+                          notes: { type: "string", nullable: true },
+                          payload: { type: "object", nullable: true, additionalProperties: true },
+                          createdAt: { type: "string", format: "date-time" },
+                          updatedAt: { type: "string", format: "date-time" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: {
+              description: "Invalid action request",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            404: {
+              description: "Project or node not found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            503: {
+              description: "Control-plane state unavailable",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },

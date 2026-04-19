@@ -7,6 +7,10 @@
 import type {
   Agent,
   Analytics,
+  ControlPlaneAction,
+  ControlPlaneDispatchIntent,
+  ControlPlaneOverviewData,
+  ControlPlaneProjectData,
   CostResult,
   DashboardEvent,
   ModelPricing,
@@ -128,6 +132,20 @@ export const api = {
 
   openspec: {
     list: () => request<OpenSpecBoardData>("/openspec/changes"),
+  },
+
+  controlPlane: {
+    overview: () => request<ControlPlaneOverviewData>("/control-plane/overview"),
+    project: (name: string) =>
+      request<ControlPlaneProjectData>(`/control-plane/projects/${encodeURIComponent(name)}`),
+    action: (name: string, data: { nodeId: string; actionType: "replay" | "reopen"; notes?: string }) =>
+      request<{ action: ControlPlaneAction; intent: ControlPlaneDispatchIntent; dispatch: ControlPlaneProjectData["dispatch"] }>(
+        `/control-plane/projects/${encodeURIComponent(name)}/actions`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        }
+      ),
   },
 
   pricing: {
