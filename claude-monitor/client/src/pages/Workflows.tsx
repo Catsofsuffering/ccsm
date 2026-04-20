@@ -5,6 +5,7 @@ import { eventBus } from "../lib/eventBus";
 import type {
   OpenSpecBoardData,
   SessionDrillIn,
+  SessionOutputs,
   WorkflowData,
   WSMessage,
 } from "../lib/types";
@@ -13,6 +14,7 @@ import { OrchestrationDAG } from "../components/workflows/OrchestrationDAG";
 import { WorkflowLiveReader } from "../components/workflows/WorkflowLiveReader";
 
 type StatusFilter = "all" | "active" | "completed";
+type SessionOption = WorkflowData["complexity"][number];
 
 export function Workflows() {
   const [data, setData] = useState<WorkflowData | null>(null);
@@ -25,6 +27,10 @@ export function Workflows() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [focusedSession, setFocusedSession] = useState<SessionDrillIn | null>(null);
+  const [focusedOutputs, setFocusedOutputs] = useState<SessionOutputs>({
+    agents: [],
+    latest_output_agent_id: null,
+  });
   const [focusedSessionLoading, setFocusedSessionLoading] = useState(false);
   const [focusedSessionError, setFocusedSessionError] = useState<string | null>(null);
 
@@ -62,6 +68,7 @@ export function Workflows() {
   useEffect(() => {
     if (!selectedSessionId) {
       setFocusedSession(null);
+      setFocusedOutputs({ agents: [], latest_output_agent_id: null });
       setFocusedSessionError(null);
       setFocusedSessionLoading(false);
       return;
@@ -71,16 +78,17 @@ export function Workflows() {
     setFocusedSessionLoading(true);
     setFocusedSessionError(null);
 
-    api.workflows
-      .session(selectedSessionId)
-      .then((result) => {
+    Promise.all([api.workflows.session(selectedSessionId), api.sessions.outputs(selectedSessionId)])
+      .then(([sessionResult, outputResult]) => {
         if (!cancelled) {
-          setFocusedSession(result);
+          setFocusedSession(sessionResult);
+          setFocusedOutputs(outputResult.outputs);
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setFocusedSession(null);
+          setFocusedOutputs({ agents: [], latest_output_agent_id: null });
           setFocusedSessionError(err instanceof Error ? err.message : "Failed to load focused session");
         }
       })
@@ -147,6 +155,11 @@ export function Workflows() {
     URL.revokeObjectURL(url);
   };
 
+  const sessionOptions = useMemo<SessionOption[]>(
+    () => data?.complexity?.slice(0, 40) ?? [],
+    [data?.complexity]
+  );
+
   if (loading && !data) {
     return (
       <div className="space-y-6">
@@ -159,11 +172,11 @@ export function Workflows() {
         />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="card h-24 animate-pulse bg-surface-2" />
+            <div key={index} className="glass-panel h-24 animate-pulse rounded-2xl" />
           ))}
         </div>
         {Array.from({ length: 2 }).map((_, index) => (
-          <div key={index} className="card h-80 animate-pulse bg-surface-2" />
+          <div key={index} className="glass-panel h-80 animate-pulse rounded-2xl" />
         ))}
       </div>
     );
@@ -179,7 +192,9 @@ export function Workflows() {
           onExport={handleExport}
           lastUpdated={null}
         />
-        <div className="card px-6 py-16 text-center text-sm text-gray-400">{error}</div>
+        <div className="glass-panel rounded-2xl px-6 py-16 text-center text-sm text-gray-400">
+          {error}
+        </div>
       </div>
     );
   }
@@ -202,9 +217,17 @@ export function Workflows() {
         <OrchestrationDAG
           data={data.orchestration}
           focusedSession={focusedSession}
+          focusedOutputs={focusedOutputs}
           onNodeClick={setSelectedNode}
           selectedNode={selectedNode}
           specSummary={specSummary}
+          sessionOptions={sessionOptions}
+          selectedSessionId={selectedSessionId}
+          onSessionChange={setSelectedSessionId}
+          onJumpToReader={() => {
+            const target = document.getElementById("workflow-live-reader");
+            target?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
         />
         {selectedNode && (
           <div className="mt-3 flex items-center gap-2">
@@ -227,10 +250,12 @@ export function Workflows() {
         title="Live Reader"
         subtitle="Session output stream moved here from Session Detail. Choose a session to inspect the latest agent output in real time."
       >
-        <WorkflowLiveReader
-          sessionId={selectedSessionId}
-          onSessionSelect={setSelectedSessionId}
-        />
+        <div id="workflow-live-reader">
+          <WorkflowLiveReader
+            sessionId={selectedSessionId}
+            onSessionSelect={setSelectedSessionId}
+          />
+        </div>
       </Section>
     </div>
   );
@@ -308,7 +333,7 @@ function PageHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg border border-border bg-surface-2 p-0.5">
+        <div className="glass-panel flex rounded-xl p-0.5">
           {filters.map((filter) => (
             <button
               key={filter.value}
@@ -328,7 +353,7 @@ function PageHeader({
         <button
           type="button"
           onClick={onRefresh}
-          className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-surface-3 hover:text-gray-300"
+          className="glass-panel rounded-xl p-2 text-gray-500 transition-colors hover:text-gray-300"
           title="Refresh data"
         >
           <RefreshCw className="h-4 w-4" />
@@ -336,7 +361,7 @@ function PageHeader({
         <button
           type="button"
           onClick={onExport}
-          className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-surface-3 hover:text-gray-300"
+          className="glass-panel rounded-xl p-2 text-gray-500 transition-colors hover:text-gray-300"
           title="Export as JSON"
         >
           <Download className="h-4 w-4" />

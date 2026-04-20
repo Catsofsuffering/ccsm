@@ -31,6 +31,9 @@ export default {
         "fade-in": "fadeIn 0.25s ease-out",
         "slide-up": "slideUp 0.25s ease-out",
         "live-pulse": "livePulse 2s ease-in-out infinite",
+        "node-enter": "nodeEnter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "status-glow": "statusGlow 1.8s ease-in-out infinite",
+        "edge-flow": "edgeFlow 1.6s linear infinite",
       },
       keyframes: {
         fadeIn: {
@@ -44,6 +47,18 @@ export default {
         livePulse: {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.35" },
+        },
+        nodeEnter: {
+          "0%": { opacity: "0", transform: "translateY(10px) scale(0.97)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        statusGlow: {
+          "0%, 100%": { opacity: "0.2" },
+          "50%": { opacity: "0.65" },
+        },
+        edgeFlow: {
+          "0%": { "stroke-dashoffset": "26" },
+          "100%": { "stroke-dashoffset": "0" },
         },
       },
     },

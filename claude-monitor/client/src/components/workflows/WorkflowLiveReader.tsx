@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, FileText, GitBranch, Search } from "lucide-react";
+import { Bot, FileText, GitBranch } from "lucide-react";
 import { api } from "../../lib/api";
 import { eventBus } from "../../lib/eventBus";
 import { MarkdownOutput } from "../MarkdownOutput";
@@ -20,7 +20,6 @@ function toTime(value: string | null | undefined): number {
 
 export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveReaderProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [search, setSearch] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [outputs, setOutputs] = useState<SessionOutputs>({ agents: [], latest_output_agent_id: null });
@@ -97,17 +96,6 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
     });
   }, [loadSession, loadSessions, sessionId]);
 
-  const filteredSessions = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return sessions;
-    return sessions.filter(
-      (item) =>
-        item.id.toLowerCase().includes(query) ||
-        item.name?.toLowerCase().includes(query) ||
-        item.cwd?.toLowerCase().includes(query)
-    );
-  }, [search, sessions]);
-
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const outputMap = useMemo(
     () => new Map(outputs.agents.map((output) => [output.agent_id, output])),
@@ -166,29 +154,23 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
   return (
     <div className="space-y-5">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <div className="rounded-xl border border-border bg-surface-2 px-4 py-4">
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-gray-500" />
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search sessions by name, id, or directory"
-              className="w-full bg-transparent text-sm text-gray-100 outline-none placeholder:text-gray-600"
-            />
+        <div className="glass-panel rounded-2xl px-4 py-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500">Recent Sessions</p>
+            <span className="text-[11px] text-gray-600">{sessions.length} tracked</span>
           </div>
-          <div className="mt-3 max-h-44 space-y-1 overflow-y-auto">
-            {filteredSessions.slice(0, 40).map((item) => {
+          <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+            {sessions.slice(0, 40).map((item) => {
               const active = item.id === sessionId;
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => onSessionSelect(item.id)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                  className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
                     active
-                      ? "border-accent/40 bg-accent/10 text-gray-100"
-                      : "border-border bg-surface-1 text-gray-400 hover:text-gray-200"
+                      ? "border-accent/30 bg-accent/10 text-gray-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                      : "border-border/70 bg-[rgb(var(--surface-1)/0.42)] text-gray-400 hover:border-border hover:bg-[rgb(var(--surface-1)/0.58)] hover:text-gray-200"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -209,15 +191,10 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
                 </button>
               );
             })}
-            {filteredSessions.length === 0 && (
-              <div className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm text-gray-500">
-                No sessions match the current search.
-              </div>
-            )}
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-surface-2 px-4 py-4">
+        <div className="glass-panel rounded-2xl px-4 py-4">
           <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500">Focused Session</p>
           {session ? (
             <div className="mt-3 space-y-3">
@@ -228,11 +205,11 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
                 <SessionStatusBadge status={session.status} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-[11px] text-gray-500">
-                <div className="rounded-lg border border-border bg-surface-1 px-3 py-2">
+                <div className="rounded-xl border border-border/70 bg-[rgb(var(--surface-1)/0.38)] px-3 py-2 backdrop-blur-xl">
                   <div className="uppercase tracking-[0.14em]">Model</div>
                   <div className="mt-1 text-sm text-gray-200">{session.model || "unknown"}</div>
                 </div>
-                <div className="rounded-lg border border-border bg-surface-1 px-3 py-2">
+                <div className="rounded-xl border border-border/70 bg-[rgb(var(--surface-1)/0.38)] px-3 py-2 backdrop-blur-xl">
                   <div className="uppercase tracking-[0.14em]">Started</div>
                   <div className="mt-1 text-sm text-gray-200">
                     {formatDateTime(session.started_at)}
@@ -251,7 +228,7 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface-1">
+      <div className="glass-panel rounded-2xl">
         <div className="border-b border-border px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -273,16 +250,16 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
                 const isSelected = selectedAgentId === agent.id;
                 return (
                   <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => setSelectedAgentId(agent.id)}
-                    className={`rounded-md border px-3 py-2 text-left transition-colors ${
-                      isSelected
-                        ? "border-accent/50 bg-accent-dim text-gray-100"
-                        : "border-border bg-surface-2 text-gray-400 hover:text-gray-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
+                  key={agent.id}
+                  type="button"
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                    isSelected
+                      ? "border-accent/40 bg-accent/10 text-gray-100"
+                      : "border-border/70 bg-[rgb(var(--surface-1)/0.34)] text-gray-400 hover:border-border hover:text-gray-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
                       {agent.type === "main" ? (
                         <Bot className="h-3.5 w-3.5" />
                       ) : (
@@ -318,7 +295,10 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
 
           {!loading && !error && selectedAgent && selectedOutput?.latest_output && (
             <div className="space-y-6">
-              <div key={refreshKey} className="animate-slide-up rounded-xl border border-accent/20 bg-accent-dim/60 p-4">
+              <div
+                key={refreshKey}
+                className="animate-slide-up rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl"
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Latest Output</p>
@@ -333,7 +313,7 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
                 </div>
 
                 {selectedOutput.transcript_path && (
-                  <p className="mt-4 text-[11px] font-mono text-gray-600">
+                  <p className="mt-4 break-all text-[11px] font-mono text-gray-300">
                     {truncate(selectedOutput.transcript_path, 72)}
                   </p>
                 )}
@@ -356,7 +336,10 @@ export function WorkflowLiveReader({ sessionId, onSessionSelect }: WorkflowLiveR
                   </div>
 
                   {historyOutputs.map((message) => (
-                    <article key={message.id} className="rounded-lg border border-border bg-surface-2 px-4 py-4">
+                    <article
+                      key={message.id}
+                      className="rounded-xl border border-border/70 bg-[rgb(var(--surface-1)/0.38)] px-4 py-4 backdrop-blur-xl"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">
                           {message.source === "transcript" ? "Transcript" : "Hook snapshot"}
