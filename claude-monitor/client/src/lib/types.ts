@@ -161,6 +161,24 @@ export interface OpenSpecTaskProgress {
   percent: number;
 }
 
+export interface OpenSpecTaskItem {
+  id: string;
+  text: string;
+  done: boolean;
+  line: number;
+  sectionId: string;
+  sectionTitle: string;
+}
+
+export interface OpenSpecTaskSection {
+  id: string;
+  title: string;
+  line: number;
+  completed: number;
+  total: number;
+  tasks: OpenSpecTaskItem[];
+}
+
 export interface OpenSpecControlPlaneLifecycle {
   state:
     | "idle"
@@ -223,6 +241,8 @@ export interface OpenSpecChange {
   taskProgress: OpenSpecTaskProgress;
   completedTasks: number;
   totalTasks: number;
+  tasks: OpenSpecTaskItem[];
+  taskSections: OpenSpecTaskSection[];
   changePath: string;
   artifacts: OpenSpecArtifact[];
   controlPlane: OpenSpecControlPlaneLifecycle;

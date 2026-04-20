@@ -1459,6 +1459,50 @@ function createOpenApiSpec() {
                             },
                             completedTasks: { type: "integer" },
                             totalTasks: { type: "integer" },
+                            tasks: {
+                              type: "array",
+                              items: {
+                                type: "object",
+                                required: ["id", "text", "done", "line", "sectionId", "sectionTitle"],
+                                properties: {
+                                  id: { type: "string" },
+                                  text: { type: "string" },
+                                  done: { type: "boolean" },
+                                  line: { type: "integer" },
+                                  sectionId: { type: "string" },
+                                  sectionTitle: { type: "string" },
+                                },
+                              },
+                            },
+                            taskSections: {
+                              type: "array",
+                              items: {
+                                type: "object",
+                                required: ["id", "title", "line", "completed", "total", "tasks"],
+                                properties: {
+                                  id: { type: "string" },
+                                  title: { type: "string" },
+                                  line: { type: "integer" },
+                                  completed: { type: "integer" },
+                                  total: { type: "integer" },
+                                  tasks: {
+                                    type: "array",
+                                    items: {
+                                      type: "object",
+                                      required: ["id", "text", "done", "line", "sectionId", "sectionTitle"],
+                                      properties: {
+                                        id: { type: "string" },
+                                        text: { type: "string" },
+                                        done: { type: "boolean" },
+                                        line: { type: "integer" },
+                                        sectionId: { type: "string" },
+                                        sectionTitle: { type: "string" },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
                             changePath: { type: "string" },
                             controlPlane: {
                               type: "object",
@@ -1724,6 +1768,59 @@ function createOpenApiSpec() {
                           stage: { type: "string" },
                           stageLabel: { type: "string" },
                           readyToApply: { type: "boolean" },
+                          taskProgress: {
+                            type: "object",
+                            properties: {
+                              completed: { type: "integer" },
+                              total: { type: "integer" },
+                              remaining: { type: "integer" },
+                              percent: { type: "integer" },
+                            },
+                          },
+                          tasks: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              required: ["id", "text", "done", "line", "sectionId", "sectionTitle"],
+                              properties: {
+                                id: { type: "string" },
+                                text: { type: "string" },
+                                done: { type: "boolean" },
+                                line: { type: "integer" },
+                                sectionId: { type: "string" },
+                                sectionTitle: { type: "string" },
+                              },
+                            },
+                          },
+                          taskSections: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              required: ["id", "title", "line", "completed", "total", "tasks"],
+                              properties: {
+                                id: { type: "string" },
+                                title: { type: "string" },
+                                line: { type: "integer" },
+                                completed: { type: "integer" },
+                                total: { type: "integer" },
+                                tasks: {
+                                  type: "array",
+                                  items: {
+                                    type: "object",
+                                    required: ["id", "text", "done", "line", "sectionId", "sectionTitle"],
+                                    properties: {
+                                      id: { type: "string" },
+                                      text: { type: "string" },
+                                      done: { type: "boolean" },
+                                      line: { type: "integer" },
+                                      sectionId: { type: "string" },
+                                      sectionTitle: { type: "string" },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
                           changeDir: { type: "string" },
                         },
                       },

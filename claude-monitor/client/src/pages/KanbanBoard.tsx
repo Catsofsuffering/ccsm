@@ -16,7 +16,7 @@ import type { Agent, AgentStatus } from "../lib/types";
 const COLUMNS: AgentStatus[] = ["idle", "connected", "working", "completed", "error"];
 const COLUMN_PAGE_SIZE = 10;
 
-export function KanbanBoard() {
+export function KanbanBoard({ embedded = false }: { embedded?: boolean }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, number>>({});
@@ -53,15 +53,17 @@ export function KanbanBoard() {
   if (!loading && agents.length === 0) {
     return (
       <div className="animate-fade-in space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-accent-muted border border-accent/30 flex items-center justify-center">
-            <Columns3 className="w-4 h-4 text-accent" />
+        {!embedded && (
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-md bg-accent-muted border border-accent/30 flex items-center justify-center">
+              <Columns3 className="w-4 h-4 text-accent" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-gray-100">Agent Board</h1>
+              <p className="text-xs text-gray-500">Kanban view of all agents by status</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-semibold text-gray-100">Agent Board</h1>
-            <p className="text-xs text-gray-500">Kanban view of all agents by status</p>
-          </div>
-        </div>
+        )}
         <EmptyState
           icon={Columns3}
           title="No agents tracked yet"
@@ -78,20 +80,28 @@ export function KanbanBoard() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-accent-muted border border-accent/30 flex items-center justify-center">
-            <Columns3 className="w-4 h-4 text-accent" />
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-gray-100">Agent Board</h1>
-            <p className="text-xs text-gray-500">{agents.length} agents</p>
-          </div>
+      {embedded ? (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={load}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={load}>
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </Button>
-      </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-md bg-accent-muted border border-accent/30 flex items-center justify-center">
+              <Columns3 className="w-4 h-4 text-accent" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-gray-100">Agent Board</h1>
+              <p className="text-xs text-gray-500">{agents.length} agents</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={load}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+        </div>
+      )}
 
       <div className="flex gap-4 min-h-[600px] overflow-x-auto pb-4 -mx-8 px-8">
         {COLUMNS.map((status) => {
@@ -100,7 +110,7 @@ export function KanbanBoard() {
           return (
             <div
               key={status}
-              className="bg-surface-1 rounded-lg border border-border p-3 flex flex-col flex-shrink-0 w-72"
+              className="glass-panel rounded-2xl p-3 flex flex-col flex-shrink-0 w-72"
             >
               <div className="flex items-center gap-2 mb-3 px-1">
                 <span

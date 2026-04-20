@@ -6,10 +6,7 @@
 
 import { NavLink } from "react-router-dom";
 import {
-  LayoutDashboard,
-  Network,
-  Columns3,
-  FileText,
+  LayoutPanelTop,
   FolderOpen,
   Activity,
   BarChart3,
@@ -27,12 +24,8 @@ import {
 import type { Theme } from "../lib/theme";
 
 const NAV_ITEMS = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/control-plane", icon: Network, label: "Control Plane" },
-  { to: "/kanban", icon: Columns3, label: "Agent Board" },
-  { to: "/openspec", icon: FileText, label: "OpenSpec Board" },
+  { to: "/board", icon: LayoutPanelTop, label: "Board" },
   { to: "/sessions", icon: FolderOpen, label: "Sessions" },
-  { to: "/activity", icon: Activity, label: "Activity Feed" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/workflows", icon: Workflow, label: "Workflows" },
   { to: "/settings", icon: Settings, label: "Settings" },
@@ -91,7 +84,6 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-md text-sm font-medium transition-colors duration-150 ${

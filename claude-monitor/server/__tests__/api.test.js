@@ -159,6 +159,8 @@ describe("OpenSpec API", () => {
     assert.ok(Array.isArray(change.artifacts));
     assert.ok(change.taskProgress);
     assert.equal(typeof change.taskProgress.percent, "number");
+    assert.ok(Array.isArray(change.tasks));
+    assert.ok(Array.isArray(change.taskSections));
     assert.equal(typeof change.readyToApply, "boolean");
     assert.ok(change.controlPlane);
     assert.equal(typeof change.controlPlane.state, "string");

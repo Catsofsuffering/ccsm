@@ -78,7 +78,7 @@ describe('createDefaultConfig', () => {
 
   it('sets paths with home directory', () => {
     const config = createDefaultConfig(baseOptions)
-    expect(config.paths.commands).toContain('.claude')
+    expect(config.paths.commands).toContain('.codex')
     expect(config.paths.prompts).toContain('.ccgs')
     expect(config.paths.backup).toContain('.ccgs')
   })

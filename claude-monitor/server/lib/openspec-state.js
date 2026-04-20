@@ -161,27 +161,113 @@ async function runOpenSpecJson(args, cwd) {
 }
 
 function parseTaskProgress(tasksPath, fallbackCompleted = 0, fallbackTotal = 0) {
-  if (!fs.existsSync(tasksPath)) {
-    const total = fallbackTotal || 0;
-    const completed = Math.min(fallbackCompleted || 0, total);
-    return {
-      completed,
-      total,
-      remaining: Math.max(total - completed, 0),
-      percent: total > 0 ? Math.round((completed / total) * 100) : 0,
-    };
-  }
+  return readTaskState(tasksPath, fallbackCompleted, fallbackTotal).taskProgress;
+}
 
-  const content = fs.readFileSync(tasksPath, "utf8");
-  const matches = Array.from(content.matchAll(/^- \[( |x)\] /gim));
-  const total = matches.length || fallbackTotal || 0;
-  const completed = matches.filter((match) => match[1].toLowerCase() === "x").length;
-
+function buildTaskProgress(completed, total) {
   return {
     completed,
     total,
     remaining: Math.max(total - completed, 0),
     percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+  };
+}
+
+function toTaskSectionId(title, line) {
+  return `${title || "tasks"}-${line || 0}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function readTaskState(tasksPath, fallbackCompleted = 0, fallbackTotal = 0) {
+  if (!fs.existsSync(tasksPath)) {
+    const total = fallbackTotal || 0;
+    const completed = Math.min(fallbackCompleted || 0, total);
+    return {
+      taskProgress: buildTaskProgress(completed, total),
+      tasks: [],
+      taskSections: [],
+    };
+  }
+
+  const content = fs.readFileSync(tasksPath, "utf8");
+  const lines = content.split(/\r?\n/);
+  const tasks = [];
+  const taskSections = [];
+  let pendingSection = { title: "Tasks", line: 1 };
+  let activeSection = null;
+
+  const ensureSection = (title, line) => {
+    const sectionTitle = title && title.trim().length > 0 ? title.trim() : "Tasks";
+    const sectionLine = line || 1;
+    const currentSection = taskSections.find(
+      (section) => section.title === sectionTitle && section.line === sectionLine
+    );
+
+    if (currentSection) {
+      activeSection = currentSection;
+      return currentSection;
+    }
+
+    const nextSection = {
+      id: toTaskSectionId(sectionTitle, sectionLine),
+      title: sectionTitle,
+      line: sectionLine,
+      completed: 0,
+      total: 0,
+      tasks: [],
+    };
+
+    taskSections.push(nextSection);
+    activeSection = nextSection;
+    return nextSection;
+  };
+
+  for (const [index, line] of lines.entries()) {
+    const headingMatch = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (headingMatch) {
+      pendingSection = {
+        title: headingMatch[1].trim(),
+        line: index + 1,
+      };
+      activeSection = null;
+      continue;
+    }
+
+    const taskMatch = line.match(/^- \[( |x)\] (.+)$/i);
+    if (!taskMatch) {
+      continue;
+    }
+
+    const done = taskMatch[1].toLowerCase() === "x";
+    const section = ensureSection(pendingSection.title, pendingSection.line || index + 1);
+    const task = {
+      id: `${section.id}-task-${index + 1}`,
+      text: taskMatch[2].trim(),
+      done,
+      line: index + 1,
+      sectionId: section.id,
+      sectionTitle: section.title,
+    };
+
+    tasks.push(task);
+    section.tasks.push(task);
+    section.total += 1;
+    if (done) {
+      section.completed += 1;
+    }
+  }
+
+  const total = tasks.length || fallbackTotal || 0;
+  const completed = tasks.length
+    ? tasks.filter((task) => task.done).length
+    : Math.min(fallbackCompleted || 0, total);
+
+  return {
+    taskProgress: buildTaskProgress(completed, total),
+    tasks,
+    taskSections,
   };
 }
 
@@ -388,16 +474,17 @@ async function buildBoardPayload(workspaceRoot) {
 
   const changes = await Promise.all(
     listChanges.map(async (change) => {
+      const taskState = readTaskState(
+        path.join(workspaceRoot, "openspec", "changes", change.name, "tasks.md"),
+        change.completedTasks,
+        change.totalTasks
+      );
       const status = await runOpenSpecJson(
         ["status", "--change", change.name, "--json"],
         workspaceRoot
       );
       const artifacts = (status.artifacts || []).map(normalizeArtifact);
-      const taskProgress = parseTaskProgress(
-        path.join(workspaceRoot, "openspec", "changes", change.name, "tasks.md"),
-        change.completedTasks,
-        change.totalTasks
-      );
+      const { taskProgress, tasks, taskSections } = taskState;
       const { stage, nextArtifact } = deriveStage(status, change.status);
       const baseChange = {
         name: change.name,
@@ -415,6 +502,8 @@ async function buildBoardPayload(workspaceRoot) {
         taskProgress,
         completedTasks: taskProgress.completed,
         totalTasks: taskProgress.total,
+        tasks,
+        taskSections,
         artifacts,
         changePath: path.join("openspec", "changes", change.name).replace(/\\/g, "/"),
       };

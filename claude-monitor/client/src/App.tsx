@@ -4,16 +4,12 @@
  * @author Son Nguyen <hoangson091104@gmail.com>
  */
 
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
 import { useCallback } from "react";
 import { Layout } from "./components/Layout";
-import { Dashboard } from "./pages/Dashboard";
-import { ControlPlane } from "./pages/ControlPlane";
-import { KanbanBoard } from "./pages/KanbanBoard";
-import { OpenSpecBoard } from "./pages/OpenSpecBoard";
+import { Board } from "./pages/Board";
 import { Sessions } from "./pages/Sessions";
 import { SessionDetail } from "./pages/SessionDetail";
-import { ActivityFeed } from "./pages/ActivityFeed";
 import { Analytics } from "./pages/Analytics";
 import { Workflows } from "./pages/Workflows";
 import { Settings } from "./pages/Settings";
@@ -35,13 +31,15 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout wsConnected={connected} />}>
-          <Route index element={<Dashboard />} />
-          <Route path="control-plane" element={<ControlPlane />} />
-          <Route path="kanban" element={<KanbanBoard />} />
-          <Route path="openspec" element={<OpenSpecBoard />} />
+          <Route index element={<Navigate to="/board" replace />} />
+          <Route path="dashboard" element={<Navigate to="/board" replace />} />
+          <Route path="board" element={<Board />} />
+          <Route path="control-plane" element={<Navigate to="/workflows" replace />} />
+          <Route path="kanban" element={<Navigate to="/board" replace />} />
+          <Route path="openspec" element={<Navigate to="/board" replace />} />
           <Route path="sessions" element={<Sessions />} />
           <Route path="sessions/:id" element={<SessionDetail />} />
-          <Route path="activity" element={<ActivityFeed />} />
+          <Route path="activity" element={<Navigate to="/board" replace />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="workflows" element={<Workflows />} />
           <Route path="settings" element={<Settings />} />
