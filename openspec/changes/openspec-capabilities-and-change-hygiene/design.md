@@ -33,6 +33,17 @@ This design keeps Codex as the planner and reviewer while delegating the bounded
 
 The execution should derive canonical main specs from requirements that already appear stable across the maintained product story, especially completed changes and strongly established active changes.
 
+The first-pass catalog promoted by this change is organized around these durable main-spec boundaries:
+
+- `codex-workflow-orchestration`
+- `execution-progress-monitoring`
+- `orchestration-control-plane`
+- `execution-dag-engine`
+- `worker-container-runtime`
+- `ccgs-command-and-skill-surface`
+- `ccgs-runtime-surface`
+- `ccgs-project-identity`
+
 Why:
 
 - `openspec/specs/` is currently empty, so a main catalog must start from the best available repository truth
@@ -104,11 +115,16 @@ Organize and supplement the current OpenSpec capabilities and changes using Open
 ### Allowed Change Surface
 
 - `openspec/specs/**`
-- `openspec/changes/**`
+- `openspec/changes/openspec-capabilities-and-change-hygiene/**`
+- `openspec/changes/codex-orchestrated-workflow/**`
+- `openspec/changes/agent-team-progress-mvp/**`
+- `openspec/changes/openspec-orchestration-control-plane/**`
+- `openspec/changes/ccgs-nativeization/**`
 
 ### Protected Surface
 
 - Any file outside `openspec/**`
+- `openspec/changes/archive/**`
 - Product code, monitor code, installer code, and repo docs outside OpenSpec
 - Archive commands or destructive cleanup
 

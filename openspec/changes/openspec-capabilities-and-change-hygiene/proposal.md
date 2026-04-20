@@ -9,6 +9,26 @@ The repository now has multiple substantial OpenSpec changes, but `openspec/spec
 - Normalize change-level documentation around capability naming, execution handoff clarity, and task structure without changing product code.
 - Leave archive decisions to Codex after the resulting OpenSpec structure has been reviewed.
 
+## Source Material
+
+This change promotes and normalizes capability coverage derived from the following source changes:
+
+- `codex-orchestrated-workflow`
+- `agent-team-progress-mvp`
+- `openspec-orchestration-control-plane`
+- `ccgs-nativeization`
+
+The first-pass canonical catalog created by this change targets these durable main-spec boundaries:
+
+- `codex-workflow-orchestration`
+- `execution-progress-monitoring`
+- `orchestration-control-plane`
+- `execution-dag-engine`
+- `worker-container-runtime`
+- `ccgs-command-and-skill-surface`
+- `ccgs-runtime-surface`
+- `ccgs-project-identity`
+
 ## Capabilities
 
 ### New Capabilities

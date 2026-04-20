@@ -20,10 +20,10 @@ export function Workflows() {
   const [data, setData] = useState<WorkflowData | null>(null);
   const [openSpecData, setOpenSpecData] = useState<OpenSpecBoardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [autoSelectedSession, setAutoSelectedSession] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [focusedSession, setFocusedSession] = useState<SessionDrillIn | null>(null);
@@ -57,13 +57,25 @@ export function Workflows() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  const sessionOptions = useMemo<SessionOption[]>(
+    () => data?.complexity?.slice(0, 40) ?? [],
+    [data?.complexity]
+  );
+
   useEffect(() => {
-    const initialSessionId = data?.complexity?.[0]?.id;
-    if (!autoSelectedSession && !selectedSessionId && initialSessionId) {
-      setSelectedSessionId(initialSessionId);
-      setAutoSelectedSession(true);
+    const nextSession = sessionOptions[0];
+
+    if (!nextSession) {
+      if (selectedSessionId !== null) {
+        setSelectedSessionId(null);
+      }
+      return;
     }
-  }, [autoSelectedSession, data, selectedSessionId]);
+
+    if (!selectedSessionId || !sessionOptions.some((session) => session.id === selectedSessionId)) {
+      setSelectedSessionId(nextSession.id);
+    }
+  }, [selectedSessionId, sessionOptions]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -134,9 +146,14 @@ export function Workflows() {
         ? "Focused session shows the live execution path from session to spec to runtime agents."
         : "Aggregate live DAG stays synchronized with sessions, OpenSpec, and agent activity.";
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setLoading(true);
-    fetchData();
+    setRefreshing(true);
+    try {
+      await fetchData();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleExport = () => {
@@ -155,11 +172,6 @@ export function Workflows() {
     URL.revokeObjectURL(url);
   };
 
-  const sessionOptions = useMemo<SessionOption[]>(
-    () => data?.complexity?.slice(0, 40) ?? [],
-    [data?.complexity]
-  );
-
   if (loading && !data) {
     return (
       <div className="space-y-6">
@@ -169,6 +181,7 @@ export function Workflows() {
           onRefresh={handleRefresh}
           onExport={handleExport}
           lastUpdated={null}
+          refreshing={refreshing}
         />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, index) => (
@@ -191,6 +204,7 @@ export function Workflows() {
           onRefresh={handleRefresh}
           onExport={handleExport}
           lastUpdated={null}
+          refreshing={refreshing}
         />
         <div className="glass-panel rounded-2xl px-6 py-16 text-center text-sm text-gray-400">
           {error}
@@ -209,6 +223,7 @@ export function Workflows() {
         onRefresh={handleRefresh}
         onExport={handleExport}
         lastUpdated={lastUpdated}
+        refreshing={refreshing}
       />
 
       <WorkflowStats stats={data.stats} />
@@ -253,7 +268,6 @@ export function Workflows() {
         <div id="workflow-live-reader">
           <WorkflowLiveReader
             sessionId={selectedSessionId}
-            onSessionSelect={setSelectedSessionId}
           />
         </div>
       </Section>
@@ -307,12 +321,14 @@ function PageHeader({
   onRefresh,
   onExport,
   lastUpdated,
+  refreshing,
 }: {
   statusFilter: StatusFilter;
   onStatusFilterChange: (filter: StatusFilter) => void;
   onRefresh: () => void;
   onExport: () => void;
   lastUpdated: Date | null;
+  refreshing: boolean;
 }) {
   const filters: { value: StatusFilter; label: string }[] = [
     { value: "all", label: "All Sessions" },
@@ -353,10 +369,11 @@ function PageHeader({
         <button
           type="button"
           onClick={onRefresh}
+          disabled={refreshing}
           className="glass-panel rounded-xl p-2 text-gray-500 transition-colors hover:text-gray-300"
-          title="Refresh data"
+          title={refreshing ? "Refreshing data" : "Refresh data"}
         >
-          <RefreshCw className="h-4 w-4" />
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </button>
         <button
           type="button"

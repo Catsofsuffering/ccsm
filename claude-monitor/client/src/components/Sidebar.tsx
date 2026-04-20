@@ -72,7 +72,6 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
           {!collapsed && (
             <div className="min-w-0">
               <h1 className="text-sm font-semibold text-gray-100 truncate">Agent Monitor</h1>
-              <p className="text-[11px] text-gray-500">Claude Code</p>
             </div>
           )}
         </div>

@@ -37,3 +37,18 @@ Changes that are effectively complete but not yet archived SHALL remain organize
 
 - **WHEN** the change tasks are complete but the change is still present under `openspec/changes/`
 - **THEN** its capability coverage and artifact status SHALL remain understandable enough to support a later Codex archive decision
+
+### Requirement: Active changes SHALL follow a reviewable artifact structure
+
+Active changes SHALL keep proposal, design, specs, and tasks organized so capability linkage, execution boundaries, and validation intent remain easy to audit.
+
+#### Scenario: Proposal documents source material and capability targets
+
+- **WHEN** a change reorganizes or promotes existing capability coverage
+- **THEN** its proposal SHALL name the relevant source changes or source capabilities
+- **AND** it SHALL make the intended capability boundaries easy to identify
+
+#### Scenario: Design and tasks are used for bounded execution
+
+- **WHEN** Codex prepares a bounded execution packet from the change design and task artifacts
+- **THEN** those artifacts SHALL restate the allowed surface, protected surface, and required verification clearly enough to support dispatch without redefining the change

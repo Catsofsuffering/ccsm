@@ -153,7 +153,7 @@ describe("OpenSpec API", () => {
     assert.ok(Array.isArray(res.body.changes));
     assert.ok(typeof res.body.workspaceRoot === "string");
 
-    const change = res.body.changes.find((item) => item.name === "agent-team-progress-mvp");
+    const change = res.body.changes.find((item) => item.name === "openspec-capabilities-and-change-hygiene");
     assert.ok(change, "expected known OpenSpec change to be present");
     assert.equal(typeof change.stage, "string");
     assert.ok(Array.isArray(change.artifacts));
@@ -1696,6 +1696,28 @@ describe("Nested Agent Spawning", () => {
     // Our nested session (hook-sess-nested) has depth 3, so avg should be > 0
     assert.ok(typeof res.body.stats.avgDepth === "number", "avgDepth should be a number");
     assert.ok(res.body.stats.avgDepth > 0, "avgDepth should be > 0 with nested agents");
+  });
+
+  it("should filter workflow sessions by status", async () => {
+    const activeId = `workflow-active-${Date.now()}`;
+    const completedId = `workflow-completed-${Date.now()}`;
+
+    await post("/api/sessions", { id: activeId, name: "Workflow Active" });
+    await post("/api/sessions", { id: completedId, name: "Workflow Completed" });
+    await patch(`/api/sessions/${completedId}`, {
+      status: "completed",
+      ended_at: new Date().toISOString(),
+    });
+
+    const activeRes = await fetch("/api/workflows?status=active");
+    assert.equal(activeRes.status, 200);
+    assert.ok(activeRes.body.complexity.some((session) => session.id === activeId));
+    assert.ok(activeRes.body.complexity.every((session) => session.status === "active"));
+
+    const completedRes = await fetch("/api/workflows?status=completed");
+    assert.equal(completedRes.status, 200);
+    assert.ok(completedRes.body.complexity.some((session) => session.id === completedId));
+    assert.ok(completedRes.body.complexity.every((session) => session.status === "completed"));
   });
 
   it("should support arbitrary depth (depth 7 chain)", async () => {

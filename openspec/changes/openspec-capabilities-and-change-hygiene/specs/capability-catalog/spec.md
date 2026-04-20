@@ -28,3 +28,25 @@ The main-spec catalog SHALL use capability names and requirement groupings that 
 
 - **WHEN** the original implementation change is no longer active
 - **THEN** the main spec SHALL still make sense as the durable source of truth for that capability
+
+### Requirement: The first-pass canonical catalog SHALL cover the maintained capability set explicitly
+
+The initial capability catalog created by this change SHALL enumerate the stable main-spec boundaries that describe the maintained repository surface.
+
+#### Scenario: A maintainer reviews the first canonical catalog
+
+- **WHEN** the maintainer inspects the created main specs under `openspec/specs/`
+- **THEN** the catalog SHALL include:
+  `codex-workflow-orchestration`,
+  `execution-progress-monitoring`,
+  `orchestration-control-plane`,
+  `execution-dag-engine`,
+  `worker-container-runtime`,
+  `ccgs-command-and-skill-surface`,
+  `ccgs-runtime-surface`, and
+  `ccgs-project-identity`
+
+#### Scenario: Source changes are mapped into the canonical catalog
+
+- **WHEN** change-local specs are promoted into main specs
+- **THEN** the resulting catalog SHALL make it possible to map the source change-local requirements back to one or more of those explicit maintained capabilities

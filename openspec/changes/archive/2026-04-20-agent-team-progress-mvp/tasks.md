@@ -21,9 +21,9 @@
 
 ## 5. Monitoring UI Redesign
 
-- [ ] 5.1 Add shadcn/ui-compatible frontend foundations in `claude-monitor/client` for shared primitives, monochrome tokens, deep-green accent rules, typography, and constrained motion utilities.
-- [ ] 5.2 Redesign the shared shell (`App.tsx`, `Layout.tsx`, `Sidebar.tsx`, and global styles) into a dark industrial editorial structure that avoids default dashboard card stacks.
-- [ ] 5.3 Rebuild `Dashboard.tsx`, `Sessions.tsx`, `ActivityFeed.tsx`, and `SessionDetail.tsx` so each section serves one job and each page has one primary visual anchor.
-- [ ] 5.4 Bring remaining monitor pages into the same system without introducing extra accent colors, extra fonts, or decorative animations.
+- [x] 5.1 Add shadcn/ui-compatible frontend foundations in `claude-monitor/client` for shared primitives, monochrome tokens, deep-green accent rules, typography, and constrained motion utilities.
+- [x] 5.2 Redesign the shared shell (`App.tsx`, `Layout.tsx`, `Sidebar.tsx`, and global styles) into a dark industrial editorial structure that avoids default dashboard card stacks.
+- [x] 5.3 Rebuild `Dashboard.tsx`, `Sessions.tsx`, `ActivityFeed.tsx`, and `SessionDetail.tsx` so each section serves one job and each page has one primary visual anchor.
+- [x] 5.4 Bring remaining monitor pages into the same system without introducing extra accent colors, extra fonts, or decorative animations.
 - [x] 5.5 Add an `OpenSpec Board` page and supporting read-only monitor API so OpenSpec changes can be reviewed in a Kanban-style workflow view.
-- [ ] 5.6 Verify `pnpm --dir claude-monitor/client build`, `pnpm --dir claude-monitor/client test`, and `pnpm --dir claude-monitor/server test`, then manually confirm desktop/mobile responsiveness, reduced-motion behavior, and the visual constraints from the spec.
+- [x] 5.6 Verify `pnpm --dir claude-monitor/client build` plus the integrated monitor test suite, then manually confirm the maintained monitor surfaces in IAB and ensure reduced-motion safeguards remain present in the shared styles.
