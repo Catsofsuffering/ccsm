@@ -86,5 +86,5 @@ pnpm test
 
 - Prefer OpenSpec-first changes.
 - Keep the Codex-led path as the default story in docs and templates.
-- Treat Gemini, MCP, and extra skills as optional layers.
+- Treat MCP and extra skills as optional layers.
 - Keep installer behavior aligned with the Claude monitor runtime.

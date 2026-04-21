@@ -1,9 +1,4 @@
-/**
- * @file ActivityFeed.tsx
- * @description Real-time event stream — one section, one responsibility.
- */
-
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Pause, Play, RefreshCw } from "lucide-react";
 import { api } from "../lib/api";
@@ -12,11 +7,11 @@ import { AgentStatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
 import { Button } from "../components/ui/Button";
 import { formatTime, timeAgo } from "../lib/format";
-import type { DashboardEvent, AgentStatus } from "../lib/types";
+import type { AgentStatus, DashboardEvent } from "../lib/types";
 
 const PAGE_SIZE = 10;
 
-export function ActivityFeed() {
+export function ActivityFeed({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const [events, setEvents] = useState<DashboardEvent[]>([]);
   const [paused, setPaused] = useState(false);
@@ -81,33 +76,36 @@ export function ActivityFeed() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-accent-muted border border-accent/30 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-accent" />
+        {!embedded && (
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-accent/30 bg-accent-muted">
+              <Activity className="h-4 w-4 text-accent" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-gray-100">Activity Feed</h1>
+              <p className="text-xs text-gray-500">
+                {paused ? `Paused - ${bufferCount} buffered` : "Live stream"}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-semibold text-gray-100">Activity Feed</h1>
-            <p className="text-xs text-gray-500">
-              {paused ? (
-                <span className="text-gray-300">Paused — {bufferCount} buffered</span>
-              ) : (
-                "Live stream"
-              )}
-            </p>
-          </div>
-        </div>
+        )}
+
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => (paused ? resume() : setPaused(true))}
-          >
+          {embedded && (
+            <p className="text-xs text-gray-500">
+              {paused ? `${bufferCount} buffered while paused` : "Live stream"}
+            </p>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => (paused ? resume() : setPaused(true))}>
             {paused ? (
-              <><Play className="w-3.5 h-3.5" /> Resume</>
+              <>
+                <Play className="w-3.5 h-3.5" /> Resume
+              </>
             ) : (
-              <><Pause className="w-3.5 h-3.5" /> Pause</>
+              <>
+                <Pause className="w-3.5 h-3.5" /> Pause
+              </>
             )}
           </Button>
           <Button variant="ghost" size="sm" onClick={load}>
@@ -120,40 +118,41 @@ export function ActivityFeed() {
         <EmptyState
           icon={Activity}
           title="No activity yet"
-          description="Events will stream here in real-time as Claude Code agents work."
+          description="Events will stream here in real time as Claude Code agents work."
         />
       ) : (
         <>
-          {/* Event list — no card wrapper */}
           <div className="space-y-px">
-            {events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((event, i) => (
+            {events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((event, index) => (
               <div
-                key={event.id ?? i}
+                key={event.id ?? index}
                 onClick={() => navigate(`/sessions/${event.session_id}`)}
-                className="flex items-center gap-4 px-3 py-2.5 hover:bg-surface-2 rounded transition-colors cursor-pointer animate-slide-up"
-                style={{ animationDelay: `${i * 20}ms` }}
+                className="animate-slide-up cursor-pointer rounded px-3 py-2.5 transition-colors hover:bg-surface-2"
+                style={{ animationDelay: `${index * 20}ms` }}
               >
-                <div className="w-14 text-[11px] text-gray-600 font-mono flex-shrink-0 text-right">
-                  {formatTime(event.created_at)}
-                </div>
+                <div className="flex items-center gap-4">
+                  <div className="w-14 flex-shrink-0 text-right font-mono text-[11px] text-gray-600">
+                    {formatTime(event.created_at)}
+                  </div>
 
-                <AgentStatusBadge status={statusFromEventType(event.event_type)} pulse />
+                  <AgentStatusBadge status={statusFromEventType(event.event_type)} pulse />
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-300 truncate">
-                    {event.summary || event.event_type}
-                  </p>
-                </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-gray-300">
+                      {event.summary || event.event_type}
+                    </p>
+                  </div>
 
-                {event.tool_name && (
-                  <span className="text-[11px] px-2 py-0.5 bg-surface-2 rounded text-gray-500 font-mono flex-shrink-0">
-                    {event.tool_name}
+                  {event.tool_name && (
+                    <span className="rounded bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-gray-500">
+                      {event.tool_name}
+                    </span>
+                  )}
+
+                  <span className="w-14 flex-shrink-0 text-right text-[11px] text-gray-600">
+                    {timeAgo(event.created_at)}
                   </span>
-                )}
-
-                <span className="text-[11px] text-gray-600 flex-shrink-0 w-14 text-right">
-                  {timeAgo(event.created_at)}
-                </span>
+                </div>
               </div>
             ))}
           </div>
@@ -161,14 +160,14 @@ export function ActivityFeed() {
           {events.length > PAGE_SIZE && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, events.length)} of{" "}
+                {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, events.length)} of{" "}
                 {events.length}
               </span>
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  onClick={() => setPage((current) => Math.max(0, current - 1))}
                   disabled={page === 0}
                 >
                   Previous
@@ -180,7 +179,9 @@ export function ActivityFeed() {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    setPage((p) => Math.min(Math.ceil(events.length / PAGE_SIZE) - 1, p + 1))
+                    setPage((current) =>
+                      Math.min(Math.ceil(events.length / PAGE_SIZE) - 1, current + 1)
+                    )
                   }
                   disabled={page >= Math.ceil(events.length / PAGE_SIZE) - 1}
                 >

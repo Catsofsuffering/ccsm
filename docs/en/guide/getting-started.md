@@ -19,7 +19,6 @@ The local runtime monitor is the Claude hook monitor under `~/.claude/.ccgs/clau
 
 Optional:
 
-- Gemini CLI
 - MCP tools
 - Extra reusable skills
 
@@ -70,7 +69,7 @@ http://127.0.0.1:4820
 If it is not running yet:
 
 ```bash
-ccg monitor start --detach
+ccgs monitor start --detach
 ```
 
 ## Next

@@ -19,7 +19,6 @@ CCG 现在维护的是一条单主路径：
 
 可选：
 
-- Gemini CLI
 - MCP 工具
 - 额外 skills
 
@@ -68,7 +67,7 @@ http://127.0.0.1:4820
 如果还没启动：
 
 ```bash
-ccg monitor start --detach
+ccgs monitor start --detach
 ```
 
 ## 下一步

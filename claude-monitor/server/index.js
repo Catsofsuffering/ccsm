@@ -23,6 +23,7 @@ const pricingRouter = require("./routes/pricing");
 const settingsRouter = require("./routes/settings");
 const workflowsRouter = require("./routes/workflows");
 const openspecRouter = require("./routes/openspec");
+const controlPlaneRouter = require("./routes/control-plane");
 
 function evictTranscriptCacheForSession(cleanupDb, transcriptCache, sessionId) {
   const tpRow = cleanupDb.db
@@ -111,6 +112,7 @@ function createApp() {
   app.use("/api/settings", settingsRouter);
   app.use("/api/workflows", workflowsRouter);
   app.use("/api/openspec", openspecRouter);
+  app.use("/api/control-plane", controlPlaneRouter);
   app.get("/api/openapi.json", (_req, res) => {
     res.json(openApiSpec);
   });

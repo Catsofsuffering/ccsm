@@ -36,7 +36,7 @@ ccs/
 │   └── utils/              # Shared utilities
 ├── templates/              # Installed to ~/.claude/
 │   ├── commands/           # 26 slash command templates (.md)
-│   ├── prompts/            # Expert prompts (codex/ + gemini/)
+│   ├── prompts/            # Expert prompts (codex/ + claude/)
 │   └── skills/             # Quality gates + orchestration
 ├── claude-monitor/         # Claude hook monitor server/client
 ├── tests/                  # Vitest test files
@@ -51,7 +51,7 @@ ccs/
 | `src/utils/config.ts` | Configuration management |
 | `src/utils/mcp.ts` | MCP tool integration |
 | `templates/commands/*.md` | Slash command templates |
-| `templates/prompts/` | Expert prompts for Codex/Gemini |
+| `templates/prompts/` | Expert prompts for Codex/Claude |
 
 ## How to Contribute
 

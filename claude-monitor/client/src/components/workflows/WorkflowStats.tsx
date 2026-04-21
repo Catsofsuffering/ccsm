@@ -37,7 +37,7 @@ interface StatCardProps {
 
 function StatCard({ label, value, icon: Icon, accentClass = "text-accent" }: StatCardProps) {
   return (
-    <div className="bg-surface-2 border border-border rounded-xl p-4 flex flex-col gap-3">
+    <div className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider leading-none">
           {label}

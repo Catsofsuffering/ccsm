@@ -268,7 +268,7 @@ export function Dashboard() {
               </span>
             )}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/kanban")}>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/board?tab=agents")}>
             View board →
           </Button>
         </div>
@@ -299,7 +299,7 @@ export function Dashboard() {
               <span className="w-1.5 h-1.5 rounded-full bg-accent animate-live-pulse" />
               <h2 className="text-sm font-medium text-gray-300">Recent Activity</h2>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/activity")}>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/board?tab=activity")}>
               View all →
             </Button>
           </div>

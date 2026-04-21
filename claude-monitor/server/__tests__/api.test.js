@@ -37,6 +37,9 @@ const EXPECTED_API_PATHS = [
   "/api/workflows",
   "/api/workflows/session/{id}",
   "/api/openspec/changes",
+  "/api/control-plane/overview",
+  "/api/control-plane/projects/{name}",
+  "/api/control-plane/projects/{name}/actions",
   "/api/settings/info",
   "/api/settings/clear-data",
   "/api/settings/reimport",
@@ -150,13 +153,88 @@ describe("OpenSpec API", () => {
     assert.ok(Array.isArray(res.body.changes));
     assert.ok(typeof res.body.workspaceRoot === "string");
 
-    const change = res.body.changes.find((item) => item.name === "agent-team-progress-mvp");
+    const change = res.body.changes.find((item) => item.name === "openspec-capabilities-and-change-hygiene");
     assert.ok(change, "expected known OpenSpec change to be present");
     assert.equal(typeof change.stage, "string");
     assert.ok(Array.isArray(change.artifacts));
     assert.ok(change.taskProgress);
     assert.equal(typeof change.taskProgress.percent, "number");
+    assert.ok(Array.isArray(change.tasks));
+    assert.ok(Array.isArray(change.taskSections));
     assert.equal(typeof change.readyToApply, "boolean");
+    assert.ok(change.controlPlane);
+    assert.equal(typeof change.controlPlane.state, "string");
+  });
+});
+
+describe("Control Plane API", () => {
+  it("should return control-plane overview for local OpenSpec projects", async () => {
+    const res = await fetch("/api/control-plane/overview");
+    assert.equal(res.status, 200);
+    assert.ok(typeof res.body.workspaceRoot === "string");
+    assert.ok(res.body.summary);
+    assert.ok(Array.isArray(res.body.adapters));
+    assert.ok(Array.isArray(res.body.projects));
+    assert.ok(Array.isArray(res.body.workers));
+
+    const project = res.body.projects.find((item) => item.name === "openspec-orchestration-control-plane");
+    assert.ok(project, "expected new control-plane change to be present");
+    assert.equal(typeof project.graphSummary.totalNodes, "number");
+    assert.equal(typeof project.readyToApply, "boolean");
+    assert.ok(project.dispatch);
+    assert.equal(typeof project.actionCount, "number");
+    assert.equal(typeof project.dispatchCount, "number");
+    assert.ok(Array.isArray(res.body.adapters[0]?.capabilities?.actions));
+  });
+
+  it("should return project graph and blackboard state", async () => {
+    const res = await fetch("/api/control-plane/projects/openspec-orchestration-control-plane");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.project.name, "openspec-orchestration-control-plane");
+    assert.ok(Array.isArray(res.body.graph.nodes));
+    assert.ok(Array.isArray(res.body.graph.edges));
+    assert.ok(res.body.blackboard);
+    assert.ok(Array.isArray(res.body.adapters));
+    assert.ok(res.body.dispatch);
+    assert.ok(Array.isArray(res.body.dispatches));
+    assert.ok(Array.isArray(res.body.blackboard.facts));
+    assert.ok(Array.isArray(res.body.blackboard.intents));
+    assert.ok(Array.isArray(res.body.workerHealth));
+    assert.ok(Array.isArray(res.body.activity));
+    assert.equal(typeof res.body.graph.nodes[0]?.dispatcherPhase, "string");
+    assert.ok(Array.isArray(res.body.graph.nodes[0]?.routing?.availableActions));
+    assert.equal(typeof res.body.workerHealth[0]?.health, "string");
+  });
+
+  it("should record replay and reopen actions for a graph node", async () => {
+    const projectRes = await fetch("/api/control-plane/projects/openspec-orchestration-control-plane");
+    assert.equal(projectRes.status, 200);
+    const nodeId = projectRes.body.graph.nodes[0]?.id;
+    assert.ok(nodeId, "expected a project graph node");
+
+    const actionRes = await post("/api/control-plane/projects/openspec-orchestration-control-plane/actions", {
+      nodeId,
+      actionType: "replay",
+    });
+    assert.equal(actionRes.status, 201);
+    assert.ok(actionRes.body.dispatch);
+    assert.ok(Array.isArray(actionRes.body.dispatch.availableAdapters));
+    assert.ok(actionRes.body.intent);
+    assert.equal(actionRes.body.action.nodeId, nodeId);
+    assert.equal(actionRes.body.action.actionType, "replay");
+    assert.equal(actionRes.body.action.status, "requested");
+    assert.equal(actionRes.body.intent.nodeId, nodeId);
+    assert.ok(["queued", "running", "completed", "failed", "blocked"].includes(actionRes.body.intent.status));
+
+    const refreshedProject = await fetch("/api/control-plane/projects/openspec-orchestration-control-plane");
+    assert.equal(refreshedProject.status, 200);
+    assert.ok(Array.isArray(refreshedProject.body.actions));
+    assert.ok(Array.isArray(refreshedProject.body.dispatches));
+    assert.ok(Array.isArray(refreshedProject.body.activity));
+    assert.ok(refreshedProject.body.actions.some((action) => action.nodeId === nodeId && action.actionType === "replay"));
+    assert.ok(refreshedProject.body.dispatches.some((intent) => intent.nodeId === nodeId && intent.actionType === "replay"));
+    assert.ok(refreshedProject.body.activity.some((item) => item.type === "action" && item.nodeId === nodeId));
+    assert.ok(refreshedProject.body.activity.some((item) => item.type === "dispatch" && item.nodeId === nodeId));
   });
 });
 
@@ -1618,6 +1696,28 @@ describe("Nested Agent Spawning", () => {
     // Our nested session (hook-sess-nested) has depth 3, so avg should be > 0
     assert.ok(typeof res.body.stats.avgDepth === "number", "avgDepth should be a number");
     assert.ok(res.body.stats.avgDepth > 0, "avgDepth should be > 0 with nested agents");
+  });
+
+  it("should filter workflow sessions by status", async () => {
+    const activeId = `workflow-active-${Date.now()}`;
+    const completedId = `workflow-completed-${Date.now()}`;
+
+    await post("/api/sessions", { id: activeId, name: "Workflow Active" });
+    await post("/api/sessions", { id: completedId, name: "Workflow Completed" });
+    await patch(`/api/sessions/${completedId}`, {
+      status: "completed",
+      ended_at: new Date().toISOString(),
+    });
+
+    const activeRes = await fetch("/api/workflows?status=active");
+    assert.equal(activeRes.status, 200);
+    assert.ok(activeRes.body.complexity.some((session) => session.id === activeId));
+    assert.ok(activeRes.body.complexity.every((session) => session.status === "active"));
+
+    const completedRes = await fetch("/api/workflows?status=completed");
+    assert.equal(completedRes.status, 200);
+    assert.ok(completedRes.body.complexity.some((session) => session.id === completedId));
+    assert.ok(completedRes.body.complexity.every((session) => session.status === "completed"));
   });
 
   it("should support arbitrary depth (depth 7 chain)", async () => {

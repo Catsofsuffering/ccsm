@@ -6,9 +6,7 @@
 
 import { NavLink } from "react-router-dom";
 import {
-  LayoutDashboard,
-  Columns3,
-  FileText,
+  LayoutPanelTop,
   FolderOpen,
   Activity,
   BarChart3,
@@ -26,11 +24,8 @@ import {
 import type { Theme } from "../lib/theme";
 
 const NAV_ITEMS = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/kanban", icon: Columns3, label: "Agent Board" },
-  { to: "/openspec", icon: FileText, label: "OpenSpec Board" },
+  { to: "/board", icon: LayoutPanelTop, label: "Board" },
   { to: "/sessions", icon: FolderOpen, label: "Sessions" },
-  { to: "/activity", icon: Activity, label: "Activity Feed" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/workflows", icon: Workflow, label: "Workflows" },
   { to: "/settings", icon: Settings, label: "Settings" },
@@ -77,7 +72,6 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
           {!collapsed && (
             <div className="min-w-0">
               <h1 className="text-sm font-semibold text-gray-100 truncate">Agent Monitor</h1>
-              <p className="text-[11px] text-gray-500">Claude Code</p>
             </div>
           )}
         </div>
@@ -89,7 +83,6 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-md text-sm font-medium transition-colors duration-150 ${

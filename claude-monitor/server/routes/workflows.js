@@ -539,7 +539,7 @@ function getErrorPropagation(statusFilter) {
   const sessionsWithErrors = db
     .prepare(
       `SELECT COUNT(DISTINCT id) as c FROM (
-        SELECT id FROM sessions WHERE status = 'error'${ss.clause}
+        SELECT s.id FROM sessions s WHERE s.status = 'error'${ss.clause}
         UNION
         SELECT DISTINCT session_id as id FROM agents WHERE status = 'error'${sf.clause}
         UNION

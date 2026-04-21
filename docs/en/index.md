@@ -34,5 +34,5 @@ features:
     details: The maintained path can start directly from Codex skills instead of treating Claude as the only shell host.
   - icon: 🧩
     title: Optional integrations stay optional
-    details: MCP, Gemini, and reusable skills remain available without defining the default product story.
+    details: MCP and reusable skills remain available without defining the default product story.
 ---

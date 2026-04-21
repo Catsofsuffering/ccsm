@@ -20,7 +20,8 @@ import { api } from "../lib/api";
 import { eventBus } from "../lib/eventBus";
 import { fmt, fmtCost, fmtCostFull } from "../lib/format";
 import { Tip } from "../components/Tip";
-import type { Analytics as AnalyticsData, CostResult } from "../lib/types";
+import { WorkflowAnalyticsPanel } from "../components/workflows/WorkflowAnalyticsPanel";
+import type { Analytics as AnalyticsData, CostResult, WorkflowData } from "../lib/types";
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
@@ -398,6 +399,7 @@ function StatPill({
 
 export function Analytics() {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
   const [costData, setCostData] = useState<CostResult | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [loading, setLoading] = useState(true);
@@ -406,11 +408,13 @@ export function Analytics() {
 
   const load = useCallback(async () => {
     try {
-      const [result, cost] = await Promise.all([
+      const [result, workflow, cost] = await Promise.all([
         api.analytics.get(),
+        api.workflows.get("all").catch(() => null),
         api.pricing.totalCost().catch(() => null),
       ]);
       setData(result);
+      setWorkflowData(workflow);
       setCostData(cost);
       setLastUpdate(new Date());
     } finally {
@@ -517,9 +521,6 @@ export function Analytics() {
     (data?.tokens.total_cache_write ?? 0);
 
   const maxToolCount = data?.tool_usage[0]?.count ?? 1;
-  const maxAgentTypeCount = data?.agent_types[0]?.count ?? 1;
-  const maxEventTypeCount = data?.event_types[0]?.count ?? 1;
-
   const cacheHitPct =
     totalTokens > 0 ? Math.round(((data?.tokens.total_cache_read ?? 0) / totalTokens) * 100) : 0;
 
@@ -529,22 +530,6 @@ export function Analytics() {
     { label: "Error", value: data?.sessions_by_status?.error ?? 0, color: "#9ca3af" },
     { label: "Abandoned", value: data?.sessions_by_status?.abandoned ?? 0, color: "#d1d5db" },
   ].filter((s) => s.value > 0);
-
-  const agentStatusSegments = [
-    { label: "Completed", value: data?.agents_by_status?.completed ?? 0, color: "#6b7280" },
-    { label: "Working", value: data?.agents_by_status?.working ?? 0, color: "#16a34a" },
-    { label: "Connected", value: data?.agents_by_status?.connected ?? 0, color: "#9ca3af" },
-    { label: "Idle", value: data?.agents_by_status?.idle ?? 0, color: "#4b5563" },
-    { label: "Error", value: data?.agents_by_status?.error ?? 0, color: "#d1d5db" },
-  ].filter((s) => s.value > 0);
-
-  const EVENT_TYPE_COLORS: Record<string, string> = {
-    PreToolUse: "bg-accent",
-    PostToolUse: "bg-accent",
-    Stop: "bg-gray-400",
-    SubagentStop: "bg-gray-500",
-    Notification: "bg-gray-600",
-  };
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -838,80 +823,13 @@ export function Analytics() {
         )}
 
         {activeTab === "workflow" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Agent type distribution */}
-            <div className="card p-5">
-              <h3 className="text-sm font-medium text-gray-300 mb-5">Subagent Types</h3>
-              {(data?.agent_types ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500">No subagent data yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {(data?.agent_types ?? []).slice(0, 10).map(({ subagent_type, count }) => (
-                    <BarRow
-                      key={subagent_type}
-                      label={subagent_type}
-                      count={count}
-                      max={maxAgentTypeCount}
-                      color="bg-accent"
-                    />
-                  ))}
-                </div>
-              )}
+          workflowData ? (
+            <WorkflowAnalyticsPanel data={workflowData} />
+          ) : (
+            <div className="card p-8 text-sm text-gray-500">
+              Workflow analytics are still loading.
             </div>
-
-            {/* Agent status donut */}
-            <div className="card p-5">
-              <h3 className="text-sm font-medium text-gray-300 mb-5">Agent Status</h3>
-              <DonutChart segments={agentStatusSegments} />
-              <div className="mt-4 pt-4 border-t border-border space-y-1.5">
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Total agents</span>
-                  <Tip raw={(data?.overview.total_agents ?? 0).toLocaleString()}>
-                    <span className="text-gray-300 font-mono">
-                      {fmt(data?.overview.total_agents ?? 0)}
-                    </span>
-                  </Tip>
-                </div>
-                {agentStatusSegments.map((s) => (
-                  <div
-                    key={s.label}
-                    className="flex items-center justify-between text-xs text-gray-500"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: s.color }}
-                      />
-                      {s.label}
-                    </span>
-                    <Tip raw={s.value.toLocaleString()}>
-                      <span className="text-gray-400 font-mono">{fmt(s.value)}</span>
-                    </Tip>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Event type breakdown */}
-            <div className="card p-5">
-              <h3 className="text-sm font-medium text-gray-300 mb-5">Event Types</h3>
-              {(data?.event_types ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500">No event data yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {(data?.event_types ?? []).map(({ event_type, count }) => (
-                    <BarRow
-                      key={event_type}
-                      label={event_type}
-                      count={count}
-                      max={maxEventTypeCount}
-                      color={EVENT_TYPE_COLORS[event_type] ?? "bg-gray-400"}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          )
         )}
 
         {activeTab === "productivity" && (

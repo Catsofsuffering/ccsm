@@ -161,6 +161,70 @@ export interface OpenSpecTaskProgress {
   percent: number;
 }
 
+export interface OpenSpecTaskItem {
+  id: string;
+  text: string;
+  done: boolean;
+  line: number;
+  sectionId: string;
+  sectionTitle: string;
+}
+
+export interface OpenSpecTaskSection {
+  id: string;
+  title: string;
+  line: number;
+  completed: number;
+  total: number;
+  tasks: OpenSpecTaskItem[];
+}
+
+export interface OpenSpecControlPlaneLifecycle {
+  state:
+    | "idle"
+    | "active"
+    | "ready"
+    | "reopened"
+    | "replaying"
+    | "dispatching"
+    | "executing"
+    | "blocked"
+    | "completed";
+  label: string;
+  summary: string;
+  latestAction: {
+    id: number;
+    nodeId: string;
+    actionType: "replay" | "reopen";
+    status: string;
+    source: string;
+    notes: string | null;
+    payload: Record<string, unknown> | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+  latestDispatch: {
+    id: number;
+    nodeId: string;
+    actionType: "replay" | "reopen";
+    adapterId: string | null;
+    runtime: string | null;
+    status: "queued" | "running" | "completed" | "failed" | "blocked";
+    source: string;
+    actionId: number | null;
+    command: string | null;
+    prompt: string | null;
+    payload: Record<string, unknown> | null;
+    pid: number | null;
+    error: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+  updatedAt: string | null;
+}
+
 export interface OpenSpecChange {
   name: string;
   status: string;
@@ -177,8 +241,11 @@ export interface OpenSpecChange {
   taskProgress: OpenSpecTaskProgress;
   completedTasks: number;
   totalTasks: number;
+  tasks: OpenSpecTaskItem[];
+  taskSections: OpenSpecTaskSection[];
   changePath: string;
   artifacts: OpenSpecArtifact[];
+  controlPlane: OpenSpecControlPlaneLifecycle;
 }
 
 export interface OpenSpecStageSummary {
@@ -191,6 +258,264 @@ export interface OpenSpecBoardData {
   workspaceRoot: string;
   stages: OpenSpecStageSummary[];
   changes: OpenSpecChange[];
+}
+
+export interface ControlPlaneWorkerSummary {
+  id: string;
+  runtime: string;
+  label: string;
+  activeSessions: number;
+  totalSessions: number;
+  runningAgents: number;
+  lastActivity: string | null;
+}
+
+export type ControlPlaneWorkerHealthStatus =
+  | "active"
+  | "idle"
+  | "degraded"
+  | "offline"
+  | "blocked";
+
+export interface ControlPlaneWorkerHealth {
+  id: string;
+  runtime: string;
+  label: string;
+  adapterId: string;
+  adapterAvailable: boolean;
+  transport: "cli";
+  source: "env" | "path" | "unresolved";
+  command: string;
+  launchReady: boolean;
+  health: ControlPlaneWorkerHealthStatus;
+  summary: string;
+  observedModels: string[];
+  activeSessions: number;
+  totalSessions: number;
+  runningAgents: number;
+  queuedDispatches: number;
+  runningDispatches: number;
+  blockedDispatches: number;
+  failedDispatches: number;
+  completedDispatches: number;
+  lastActivity: string | null;
+  lastError: string | null;
+}
+
+export interface ControlPlaneAdapter {
+  id: string;
+  runtime: string;
+  transport: "cli";
+  available: boolean;
+  command: string;
+  source: "env" | "path" | "unresolved";
+  envKey: string;
+  capabilities: {
+    stages: string[];
+    actions: string[];
+  };
+}
+
+export interface ControlPlaneDispatch {
+  preferredAdapterId: string | null;
+  preferredRuntime: string | null;
+  command: string | null;
+  availableAdapters: string[];
+  reason: string;
+}
+
+export type ControlPlaneActionType = "replay" | "reopen";
+
+export type ControlPlaneDispatcherPhase =
+  | "bootstrap"
+  | "reason"
+  | "dispatch"
+  | "observe"
+  | "reconcile"
+  | "complete-or-reopen";
+
+export interface ControlPlaneNodeRouting {
+  defaultActionType: ControlPlaneActionType | null;
+  availableActions: ControlPlaneActionType[];
+  byAction: Partial<Record<ControlPlaneActionType, ControlPlaneDispatch>>;
+}
+
+export interface ControlPlaneNodeIntervention {
+  actionType: ControlPlaneActionType;
+  status: "requested" | "acknowledged" | "completed" | "rejected";
+  createdAt: string;
+  notes: string | null;
+}
+
+export interface ControlPlaneProjectSummary {
+  name: string;
+  title: string;
+  stage: OpenSpecStage;
+  stageLabel: string;
+  updatedAt: string | null;
+  readyToApply: boolean;
+  nextArtifact: string | null;
+  changePath: string;
+  artifactSummary: {
+    done: number;
+    total: number;
+  };
+  taskProgress: OpenSpecTaskProgress;
+  sessionCount: number;
+  activeRunCount: number;
+  workerRuntimes: string[];
+  actionCount?: number;
+  latestActionAt?: string | null;
+  dispatchCount?: number;
+  latestDispatchAt?: string | null;
+  dispatch?: ControlPlaneDispatch;
+  graphSummary: {
+    totalNodes: number;
+    totalEdges: number;
+    runningNodes: number;
+    completedNodes: number;
+  };
+}
+
+export interface ControlPlaneOverviewData {
+  workspaceRoot: string;
+  generatedAt: string;
+  summary: {
+    totalProjects: number;
+    activeProjects: number;
+    readyProjects: number;
+    activeWorkers: number;
+    runningSessions: number;
+    availableAdapters: number;
+  };
+  adapters: ControlPlaneAdapter[];
+  workers: ControlPlaneWorkerSummary[];
+  projects: ControlPlaneProjectSummary[];
+}
+
+export interface ControlPlaneBlackboardEntry {
+  id: string;
+  label: string;
+  kind?: string;
+  status?: string;
+  value?: string;
+}
+
+export interface ControlPlaneBlackboard {
+  facts: ControlPlaneBlackboardEntry[];
+  intents: ControlPlaneBlackboardEntry[];
+  hints: ControlPlaneBlackboardEntry[];
+  settings: ControlPlaneBlackboardEntry[];
+}
+
+export interface ControlPlaneSessionSummary {
+  id: string;
+  name: string | null;
+  status: SessionStatus;
+  cwd: string | null;
+  model: string | null;
+  updatedAt: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  agentCount: number;
+  runningAgents: number;
+  runtime: string;
+}
+
+export interface ControlPlaneGraphNode {
+  id: string;
+  label: string;
+  subtitle: string;
+  kind: "project" | "artifact" | "task" | "session" | "worker";
+  status: string;
+  column: number;
+  dispatcherPhase: ControlPlaneDispatcherPhase;
+  routing: ControlPlaneNodeRouting;
+  intervention: ControlPlaneNodeIntervention | null;
+}
+
+export interface ControlPlaneGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: string;
+}
+
+export interface ControlPlaneAction {
+  id: number;
+  projectName: string;
+  nodeId: string;
+  actionType: ControlPlaneActionType;
+  status: "requested" | "acknowledged" | "completed" | "rejected";
+  source: string;
+  notes: string | null;
+  payload: (Record<string, unknown> & { dispatch?: ControlPlaneDispatch }) | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ControlPlaneDispatchIntent {
+  id: number;
+  projectName: string;
+  nodeId: string;
+  actionType: ControlPlaneActionType;
+  adapterId: string | null;
+  runtime: string | null;
+  status: "queued" | "running" | "completed" | "failed" | "blocked";
+  source: string;
+  actionId: number | null;
+  command: string | null;
+  prompt: string | null;
+  payload: (Record<string, unknown> & { dispatch?: ControlPlaneDispatch }) | null;
+  pid: number | null;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ControlPlaneActivityItem {
+  id: string;
+  type: "event" | "action" | "dispatch";
+  timestamp: string;
+  title: string;
+  detail: string | null;
+  status: string | null;
+  source: string | null;
+  sessionId: string | null;
+  nodeId: string | null;
+  runtime: string | null;
+  toolName: string | null;
+  relatedNodeIds: string[];
+}
+
+export interface ControlPlaneProjectData {
+  workspaceRoot: string;
+  generatedAt: string;
+  project: OpenSpecChange & {
+    title: string;
+    changeDir: string;
+  };
+  blackboard: ControlPlaneBlackboard;
+  actions: ControlPlaneAction[];
+  dispatches: ControlPlaneDispatchIntent[];
+  adapters: ControlPlaneAdapter[];
+  dispatch: ControlPlaneDispatch;
+  workers: ControlPlaneWorkerSummary[];
+  workerHealth: ControlPlaneWorkerHealth[];
+  sessions: ControlPlaneSessionSummary[];
+  activity: ControlPlaneActivityItem[];
+  graph: {
+    nodes: ControlPlaneGraphNode[];
+    edges: ControlPlaneGraphEdge[];
+    stats: {
+      totalNodes: number;
+      totalEdges: number;
+      runningNodes: number;
+      completedNodes: number;
+    };
+  };
 }
 
 // ── Workflow types ──

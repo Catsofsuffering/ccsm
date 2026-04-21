@@ -1,6 +1,6 @@
 /**
  * @file Sidebar.test.tsx
- * @description Unit tests for the Sidebar component, which is responsible for rendering the application's sidebar navigation. The tests cover rendering of the brand name, subtitle, navigation links, WebSocket connection status, and version number. The tests use React Testing Library and Vitest for assertions and mocking.
+ * @description Unit tests for the Sidebar component, which is responsible for rendering the application's sidebar navigation. The tests cover rendering of the brand name, navigation links, WebSocket connection status, and version number. The tests use React Testing Library and Vitest for assertions and mocking.
  * @author Son Nguyen <hoangson091104@gmail.com>
  */
 
@@ -29,18 +29,12 @@ describe("Sidebar", () => {
     expect(screen.getByText("Agent Monitor")).toBeInTheDocument();
   });
 
-  it("should render the subtitle", () => {
-    renderSidebar(true);
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-  });
-
   it("should render all navigation links", () => {
     renderSidebar(true);
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Agent Board")).toBeInTheDocument();
-    expect(screen.getByText("OpenSpec Board")).toBeInTheDocument();
+    expect(screen.getByText("Board")).toBeInTheDocument();
     expect(screen.getByText("Sessions")).toBeInTheDocument();
-    expect(screen.getByText("Activity Feed")).toBeInTheDocument();
+    expect(screen.getByText("Analytics")).toBeInTheDocument();
+    expect(screen.getByText("Workflows")).toBeInTheDocument();
   });
 
   it('should show "Live" when WebSocket is connected', () => {
@@ -62,11 +56,10 @@ describe("Sidebar", () => {
     renderSidebar(true);
     const links = screen.getAllByRole("link");
     const hrefs = links.map((link) => link.getAttribute("href"));
-    expect(hrefs).toContain("/");
-    expect(hrefs).toContain("/kanban");
-    expect(hrefs).toContain("/openspec");
+    expect(hrefs).toContain("/board");
     expect(hrefs).toContain("/sessions");
-    expect(hrefs).toContain("/activity");
+    expect(hrefs).toContain("/analytics");
+    expect(hrefs).toContain("/workflows");
     expect(hrefs).toContain("https://github.com/Catsofsuffering");
     expect(hrefs).toContain("https://github.com/Catsofsuffering/CCGS");
   });

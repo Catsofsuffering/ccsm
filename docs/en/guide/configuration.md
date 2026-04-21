@@ -35,7 +35,7 @@ CCG still allows routing configuration, but the maintained story is:
 - Claude executes
 - Codex reviews and accepts
 
-Gemini remains optional for secondary analysis or prompt assets.
+Only the maintained Codex/Claude prompt and host surfaces are bundled by default.
 
 ## Monitor runtime
 

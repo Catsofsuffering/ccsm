@@ -77,7 +77,7 @@ function renderPage() {
   );
 }
 
-describe("SessionDetail nested agent tree and output reader", () => {
+describe("SessionDetail nested agent tree", () => {
   beforeEach(() => {
     mockAgents = [];
     mockEvents = [];
@@ -171,7 +171,7 @@ describe("SessionDetail nested agent tree and output reader", () => {
     expect(await screen.findByText("Unparented Subagents")).toBeInTheDocument();
   });
 
-  it("renders markdown output for the newest agent feed", async () => {
+  it("renders the event timeline without the workflow live reader", async () => {
     mockAgents = [
       makeAgent({ id: "main-1", name: "Main", type: "main", status: "idle" }),
       makeAgent({
@@ -216,13 +216,23 @@ describe("SessionDetail nested agent tree and output reader", () => {
         },
       ],
     };
+    mockEvents = [
+      {
+        id: 1,
+        session_id: "sess-1",
+        agent_id: "sub-1",
+        event_type: "PreToolUse",
+        tool_name: "Read",
+        summary: "Reading files",
+        data: null,
+        created_at: "2026-03-05T11:00:00.000Z",
+      },
+    ];
 
     renderPage();
 
-    expect(await screen.findByText("Latest Output")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Summary" })).toBeInTheDocument();
-    expect(await screen.findByText("latest finding")).toBeInTheDocument();
-    expect((await screen.findAllByText("Researcher")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("Earlier paragraph")).toBeInTheDocument();
+    expect(await screen.findByText("Event Timeline (1)")).toBeInTheDocument();
+    expect(await screen.findByText("Reading files")).toBeInTheDocument();
+    expect(screen.queryByText("Live Reader")).not.toBeInTheDocument();
   });
 });

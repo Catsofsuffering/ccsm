@@ -1,6 +1,6 @@
 /**
  * @file NotFound.tsx
- * @description Displays a user-friendly 404 Not Found page with navigation options to return to the dashboard or go back to the previous page.
+ * @description Displays a user-friendly 404 Not Found page with navigation options to return to the board or go back to the previous page.
  * @author Son Nguyen <hoangson091104@gmail.com>
  */
 
@@ -26,7 +26,7 @@ export function NotFound() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button className="btn-primary" onClick={() => navigate("/")}>
             <Home className="w-4 h-4" />
-            Go to Dashboard
+            Go to Board
           </button>
           <button
             className="btn-ghost border border-border hover:border-border-light"
