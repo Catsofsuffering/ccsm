@@ -10,26 +10,67 @@
 
 </div>
 
-CCGS is the native Codex-led workflow package. The extra `S` stands for `Spec`: OpenSpec is the backbone, Codex owns workflow progression, Claude Agent Teams handle bounded execution, and Codex performs review, testing, acceptance, and archive decisions.
+CCGS is a Codex-led OpenSpec workflow package. Codex owns planning and acceptance, Claude Agent Teams execute bounded implementation, and the local monitor gives you a live view of board status, workflow topology, and runtime activity.
 
-This repository no longer uses the upstream README as its product story. Upstream compatibility remains valuable, but the maintained default path in this fork is:
+## What CCGS Is For
 
-1. Codex creates or advances the OpenSpec change.
+The maintained path in this fork is:
+
+1. Codex creates or advances an OpenSpec change.
 2. Codex prepares the execution handoff contract.
 3. Claude Agent Teams implement the scoped work.
-4. Codex reviews the return packet, verifies results, and decides archive readiness.
+4. Codex reviews the result, runs verification, and decides archive readiness.
 
-## Why This Fork
+MCP, extra skills, and Gemini can still be used, but they are optional layers rather than the default workflow.
 
-- Codex is the workflow owner, not a side model behind another orchestrator.
-- OpenSpec is required for the maintained path, not an optional afterthought.
-- Claude remains important, but primarily as the execution layer.
-- MCP and reusable skills are optional integrations rather than baseline requirements.
-- Legacy surfaces are not part of the maintained product path.
+## Install
 
-## Primary Workflow
+### Prerequisites
 
-The recommended end-to-end flow is:
+- Node.js 20+
+- Codex for the primary orchestration flow
+- Claude Code for execution and local monitor integration
+
+### Run Without Global Install
+
+```bash
+npx ccgs-workflow
+```
+
+### Install Globally
+
+```bash
+npm install -g ccgs-workflow
+ccgs
+```
+
+The canonical command is `ccgs`. The legacy `ccg` alias still exists for compatibility.
+
+## Quick Start
+
+### 1. Initialize the workflow
+
+```bash
+ccgs init
+```
+
+During setup, CCGS asks who orchestrates the workflow before model routing is selected. Codex is the recommended default. The installer also places Codex-native entry skills under `~/.codex/skills/`.
+
+### 2. Start the monitor
+
+```bash
+ccgs monitor
+```
+
+To keep it running in the background:
+
+```bash
+ccgs monitor --detach
+```
+
+By default, the monitor serves at [http://127.0.0.1:4820](http://127.0.0.1:4820).
+
+### 3. Work through the primary OpenSpec flow
 
 ```bash
 /ccgs:spec-init
@@ -42,90 +83,106 @@ The recommended end-to-end flow is:
 openspec archive <change-id>
 ```
 
-`/ccgs:spec-impl` is the managed shortcut when you want Codex to dispatch Claude execution and keep acceptance inside the same Codex-led loop.
+If you want the managed shortcut for Codex dispatch plus Claude execution plus Codex acceptance, use:
 
-## Codex-Native Entrypoint
+```bash
+/ccgs:spec-impl
+```
 
-After install, CCGS also places Codex-native skills under `~/.codex/skills/`:
+## CLI Surface
+
+The currently maintained command surface is:
+
+```bash
+ccgs
+ccgs init
+ccgs monitor
+ccgs monitor --detach
+ccgs claude
+ccgs config mcp
+ccgs diagnose-mcp
+ccgs fix-mcp
+```
+
+What these do:
+
+- `ccgs`: open the interactive menu.
+- `ccgs init`: install and configure the workflow.
+- `ccgs monitor`: start the local Claude hook monitor.
+- `ccgs claude`: launch Claude through the CCGS dispatcher for Codex handoff scenarios.
+- `ccgs config mcp`: configure MCP tokens.
+- `ccgs diagnose-mcp`: inspect MCP configuration problems.
+- `ccgs fix-mcp`: apply the Windows MCP repair path.
+
+## Monitor
+
+The local monitor is the operational view for the Codex + Claude execution loop. It is designed to make OpenSpec progress and agent activity visible while work is running.
+
+Main pages:
+
+- `Board`: current changes, progress, and activity snapshots.
+- `Sessions`: searchable session history with status, duration, agent count, and directory context.
+- `Workflows`: live DAG view plus session output flow.
+- `Analytics`: productivity and workflow telemetry.
+
+### Board
+
+![Board](./assets/readme/monitor-board.png)
+
+### Sessions
+
+![Sessions](./assets/readme/monitor-sessions.png)
+
+### Workflows
+
+![Workflows](./assets/readme/monitor-workflows.png)
+
+### Analytics
+
+![Analytics](./assets/readme/monitor-analytics.png)
+
+## What Gets Installed
+
+The current install path keeps compatibility with existing environments while shifting the primary workflow toward Codex:
+
+- Claude-facing commands and runtime assets are still installed under `~/.claude/`.
+- Codex-native workflow skills are installed under `~/.codex/skills/`.
+- Runtime data is stored under `~/.claude/.ccgs/`.
+- The maintained local monitor runtime lives under `~/.claude/.ccgs/claude-monitor`.
+
+## Codex-Native Entry Skills
+
+After installation, CCGS also installs:
 
 - `ccgs-spec-init`
 - `ccgs-spec-plan`
 - `ccgs-spec-impl`
 
-That means the maintained path can start directly inside Codex instead of relying on Claude as the shell host.
-
-## Installation
-
-### Prerequisites
-
-- Node.js 20+
-- Codex CLI for the primary host workflow
-- Claude Code CLI for Agent Teams execution and compatibility command surfaces
-
-Optional:
-
-- MCP tooling
-- Extra reusable skills
-
-### Install
-
-```bash
-npx ccgs-workflow
-``` 
-
-You can also run:
-
-```bash
-npx ccgs-workflow init
-npx ccgs-workflow monitor
-npx ccgs-workflow menu
-npx ccgs-workflow update
-```
-
-During setup, the installer asks who orchestrates the workspace before frontend/backend model selection. Codex is the recommended default, but Claude can still be selected for compatibility.
-
-## What Gets Installed
-
-Current install behavior keeps compatibility with existing environments:
-
-- Claude-facing commands and assets are installed under `~/.claude/`
-- Codex-native workflow skills are installed under `~/.codex/skills/`
-- Workflow configuration is stored under `~/.claude/.ccgs/`
-- The Claude hook monitor is installed under `~/.claude/.ccgs/claude-monitor`
-- Claude hook entries are written into `~/.claude/settings.json`
-
-## Compatibility Policy
-
-`ccgs` is the canonical maintained namespace. The remaining `ccg` surfaces exist only as migration bridges:
-
-- package and binary aliases such as `ccg-workflow` and `ccg`
-- pre-existing runtime directories such as `~/.claude/.ccg/`
-- pre-existing installed assets under `commands/ccg`, `agents/ccg`, `skills/ccg`, and older Codex workflow skill names
-
-New installs write canonical assets under `ccgs` and `.ccgs`. Existing `ccg` assets are detected, migrated, or read as compatibility inputs when needed, but they are no longer the maintained default path.
+These let the primary workflow start directly from Codex while keeping Claude available as the execution layer.
 
 ## Repository Landmarks
 
 ```text
 src/
-├── cli.ts
-├── cli-setup.ts
-├── commands/
-├── utils/
-└── i18n/
+|- cli.ts
+|- cli-setup.ts
+|- commands/
+|- utils/
+`- i18n/
 
 templates/
-├── commands/
-├── prompts/
-└── skills/
+|- commands/
+|- prompts/
+|- codex-skills/
+`- skills/
 
 openspec/
-└── changes/
+`- changes/
 
 claude-monitor/
-├── server/
-├── client/
-└── scripts/
+|- client/
+|- server/
+`- scripts/
 ```
 
 ## Architecture
@@ -140,18 +197,20 @@ graph TD
     Packet --> Codex
     Codex --> Verify["Tests + review + acceptance"]
     Verify --> Archive["Archive"]
+    Claude --> Monitor["Local monitor"]
     Codex -. optional .-> MCP["MCP"]
     Codex -. optional .-> Skills["Skills"]
+    Codex -. optional .-> Gemini["Gemini"]
 ```
 
 ## Contributing
 
-- Prefer OpenSpec-first changes over direct ad hoc edits.
-- Keep compatibility flows labeled as compatibility before removing them.
-- Do not assume MCP or extra skills are mandatory in new product language.
-- Keep the maintained path centered on Codex orchestration, Claude Agent Teams execution, and Codex review.
+- Prefer OpenSpec-first changes over ad hoc edits.
+- Keep compatibility surfaces labeled as compatibility until they are retired.
+- Do not describe MCP, extra skills, or Gemini as mandatory for the default product path.
+- Keep new docs aligned to the Codex-orchestrated, Claude-executed workflow.
 
-Project workflow and project guidance are documented in [AGENTS.md](./AGENTS.md).
+Project workflow guidance lives in [AGENTS.md](./AGENTS.md).
 
 ## License
 
