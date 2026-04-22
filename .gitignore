@@ -58,3 +58,9 @@ FINAL_VERIFICATION.md
 
 # Old package tarballs
 *.tgz
+
+# Local Codex environment metadata
+.codex/environments/
+
+# Temporary verification artifacts
+.tmp/
