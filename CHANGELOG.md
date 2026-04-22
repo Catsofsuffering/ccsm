@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.27] - 2026-04-22
+
+### Changed
+
+- Completed the maintained nativeization pass to `ccsm`, making `~/.ccsm` the canonical runtime home while keeping only minimal `.claude` and `.codex` discovery bridges.
+- Replaced the maintained Codex workflow skill surface with the top-level `spec-init`, `spec-research`, `spec-plan`, `spec-impl`, and `spec-review` entrypoints, and hardened installer and migration behavior to avoid overwriting user-owned `spec-*` skills.
+- Removed install-time MCP buffet and automatic MCP setup from `ccsm init`; base installation now defaults MCP to optional post-install configuration and ignores stale removed MCP providers.
+- Synced the finalized OpenSpec changes into main specs and archived the completed `ccsm-nativeization` and `ccg-spec-entrypoint-unification` changes.
+
+## [2.1.26] - 2026-04-21
+
+### Changed
+
+- `ccsm monitor hooks` now also ensures `~/.claude/settings.json` allows `Bash(*ccsm*)`, so Claude-side CCSM execution is not blocked by the previous command allowlist.
+- `ccsm monitor install` and `ccsm init` now mark the active workspace as `trusted` in `~/.codex/config.toml`, matching Codex's native execution trust model instead of inventing a parallel permission surface.
+- Fixed Codex workspace trust normalization on Windows so equivalent path keys do not get duplicated with mixed `\\` and `/` separators.
+
+---
+
+## [2.1.25] - 2026-04-21
+
+### Changed
+
+- Removed the interactive API provider step from `ccsm init`; installation now starts directly from workflow/model routing.
+- Delayed the `安装成功` / install success signal until all post-install work finishes, including monitor and MCP setup.
+- Hardened legacy migration cleanup so deprecated `ccg`/`ccgs` runtime, command, rule, and Codex skill entrypoints are merged into canonical `ccsm` locations and then removed.
+
+---
+
 ## [2.1.22] - 2026-04-17
 
 ### Changed

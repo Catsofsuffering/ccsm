@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { extractClaudeExecArgs } from '../../commands/claude'
 import {
+  buildClaudeExecArgs,
   buildClaudeLaunchEnv,
+  getDefaultClaudePermissionMode,
   mergeNoProxyValue,
   resolveClaudeLaunchSpec,
   resolveWindowsCmdShimTarget,
@@ -46,7 +48,7 @@ describe('buildClaudeLaunchEnv', () => {
   it('can append local NO_PROXY only when explicitly requested', () => {
     const env = buildClaudeLaunchEnv({
       NO_PROXY: 'example.com',
-      CCGS_CLAUDE_APPEND_LOCAL_NO_PROXY: '1',
+      CCSM_CLAUDE_APPEND_LOCAL_NO_PROXY: '1',
     })
     expect(env.NO_PROXY).toBe('example.com,127.0.0.1,localhost')
     expect(env.no_proxy).toBe('example.com,127.0.0.1,localhost')
@@ -56,6 +58,30 @@ describe('buildClaudeLaunchEnv', () => {
     const env = buildClaudeLaunchEnv({}, false)
     expect(env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined()
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBeUndefined()
+  })
+})
+
+describe('Claude permission defaults', () => {
+  it('defaults Agent Teams launches to bypassPermissions', () => {
+    expect(getDefaultClaudePermissionMode({})).toBe('bypassPermissions')
+    expect(buildClaudeExecArgs(['--verbose'])).toEqual(['--permission-mode=bypassPermissions', '--verbose'])
+  })
+
+  it('does not inject a default permission mode when Agent Teams are disabled', () => {
+    expect(getDefaultClaudePermissionMode({}, false)).toBeNull()
+    expect(buildClaudeExecArgs(['--verbose'], {}, false)).toEqual(['--verbose'])
+  })
+
+  it('allows explicit environment override and opt-out', () => {
+    expect(getDefaultClaudePermissionMode({ CCSM_CLAUDE_PERMISSION_MODE: 'acceptEdits' })).toBe('acceptEdits')
+    expect(buildClaudeExecArgs([], { CCSM_CLAUDE_PERMISSION_MODE: 'acceptEdits' })).toEqual(['--permission-mode=acceptEdits'])
+    expect(getDefaultClaudePermissionMode({ CCSM_CLAUDE_PERMISSION_MODE: 'inherit' })).toBeNull()
+    expect(buildClaudeExecArgs([], { CCSM_CLAUDE_PERMISSION_MODE: 'inherit' })).toEqual([])
+  })
+
+  it('preserves explicit user permission flags', () => {
+    expect(buildClaudeExecArgs(['--permission-mode', 'default', '--verbose'])).toEqual(['--permission-mode', 'default', '--verbose'])
+    expect(buildClaudeExecArgs(['--dangerously-skip-permissions'])).toEqual(['--dangerously-skip-permissions'])
   })
 })
 
@@ -79,9 +105,9 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node
 })
 
 describe('resolveClaudeLaunchSpec', () => {
-  it('prefers PATH over CCGS_CLAUDE_PATH when a standard install is available', async () => {
-    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccgs-claude-path-'))
-    const env: NodeJS.ProcessEnv = { ...process.env, PATH: fixtureDir, CCGS_CLAUDE_PATH: join(fixtureDir, 'override.js') }
+  it('prefers PATH over CCSM_CLAUDE_PATH when a standard install is available', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-claude-path-'))
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: fixtureDir, CCSM_CLAUDE_PATH: join(fixtureDir, 'override.js') }
 
     if (process.platform === 'win32') {
       const shimPath = join(fixtureDir, 'claude.cmd')
@@ -106,13 +132,13 @@ endLocal & goto #_undefined_# 2>NUL || "%dp0%\\node.exe"  "%dp0%\\node_modules\\
     }
   })
 
-  it('uses CCGS_CLAUDE_PATH as a fallback override for non-standard installs', async () => {
-    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccgs-claude-override-'))
+  it('uses CCSM_CLAUDE_PATH as a fallback override for non-standard installs', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-claude-override-'))
     const overridePath = join(fixtureDir, 'claude-entry.mjs')
     writeFileSync(overridePath, 'console.log("claude")\n')
 
     const spec = await resolveClaudeLaunchSpec({
-      env: { ...process.env, PATH: '', CCGS_CLAUDE_PATH: overridePath },
+      env: { ...process.env, PATH: '', CCSM_CLAUDE_PATH: overridePath },
       platform: process.platform,
     })
 
@@ -124,14 +150,14 @@ endLocal & goto #_undefined_# 2>NUL || "%dp0%\\node.exe"  "%dp0%\\node_modules\\
 
 describe('extractClaudeExecArgs', () => {
   it('extracts raw args after an explicit passthrough marker', () => {
-    expect(extractClaudeExecArgs(['node', 'ccgs', 'claude', 'exec', '--', '--version']))
+    expect(extractClaudeExecArgs(['node', 'ccsm', 'claude', 'exec', '--', '--version']))
       .toEqual(['--version'])
   })
 
   it('filters known wrapper options and keeps Claude flags', () => {
     expect(extractClaudeExecArgs([
       'node',
-      'ccgs',
+      'ccsm',
       'claude',
       'exec',
       '--cwd',
@@ -143,12 +169,12 @@ describe('extractClaudeExecArgs', () => {
   })
 })
 
-describe('ccgs-spec-impl skill', () => {
-  it('uses the stable ccgs claude launcher instead of a PowerShell snippet', () => {
+describe('spec-impl skill', () => {
+  it('uses the stable ccsm claude launcher instead of a PowerShell snippet', () => {
     const packageRoot = findPackageRoot()
-    const content = readFileSync(join(packageRoot, 'templates', 'codex-skills', 'ccgs-spec-impl', 'SKILL.md'), 'utf-8')
+    const content = readFileSync(join(packageRoot, 'templates', 'codex-skills', 'spec-impl', 'SKILL.md'), 'utf-8')
 
-    expect(content).toContain('ccgs claude exec --prompt-file')
+    expect(content).toContain('ccsm claude exec --prompt-file')
     expect(content).not.toContain('```powershell')
     expect(content).not.toContain('claude -p $prompt')
   })
