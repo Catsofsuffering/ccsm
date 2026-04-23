@@ -1,0 +1,77 @@
+{
+  "spec-init": {
+    "goal": "Select or create the active change in Codex and stop at the next artifact boundary.",
+    "mustContain": [
+      "Codex remains the orchestrator.",
+      "openspec list --json",
+      "openspec status --change",
+      "next skill: `spec-plan`"
+    ],
+    "mustNotContain": [
+      "ccsm claude exec --prompt-file",
+      "openspec archive <change-name>"
+    ]
+  },
+  "spec-research": {
+    "goal": "Turn a request into proposal-ready constraints without changing product code.",
+    "mustContain": [
+      "Do not modify product code in this step.",
+      "proposal.md",
+      "next skill: `spec-plan`"
+    ],
+    "mustNotContain": [
+      "ccsm claude exec --prompt-file",
+      "openspec archive <change-name>"
+    ]
+  },
+  "spec-plan": {
+    "goal": "Prepare the bounded execution handoff contract in Codex before Claude executes.",
+    "mustContain": [
+      "Execution Handoff Contract",
+      "Do not modify product code in this step.",
+      "next skill: `spec-impl`"
+    ],
+    "mustNotContain": [
+      "openspec archive <change-name>"
+    ]
+  },
+  "spec-impl": {
+    "goal": "Dispatch bounded implementation to Claude Agent Teams by default, keep acceptance in Codex.",
+    "mustContain": [
+      "Claude Agent Teams are the default execution worker.",
+      "Plain single-session Claude is only an explicit fallback",
+      "The first implementation action is dispatch, not local coding.",
+      "Before Claude dispatch completes, Codex may inspect context and prepare the packet, but must not edit product code or start implementation locally.",
+      "ccsm claude exec --prompt-file .claude/ccsm/claude-dispatch-prompt.txt",
+      "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1",
+      "CLAUDE_CODE_ENABLE_TASKS=1",
+      "If `ccsm claude exec` cannot be invoked, or Claude execution cannot start cleanly, stop and report the workflow as blocked instead of continuing with local implementation.",
+      "Do not edit product code, create implementation patches, or start local implementation before `ccsm claude exec` has dispatched work to Claude.",
+      "If Claude dispatch is blocked or unavailable, stop and surface the blocker instead of silently implementing the change in Codex.",
+      "openspec archive <change-name>"
+    ],
+    "mustNotContain": [
+      "If the execution packet requires Agent Teams, enable both"
+    ],
+    "pathAssertions": {
+      "mustContain": [
+        "{{CLAUDE_HOME}}/settings.json",
+        "{{CODEX_HOME}}/config.toml"
+      ],
+      "mustNotContain": [
+        "{{CODEX_HOME}}/settings.json"
+      ]
+    }
+  },
+  "spec-review": {
+    "goal": "Run the final Codex acceptance gate before archive.",
+    "mustContain": [
+      "Codex performs the final acceptance gate.",
+      "Do not archive without verification evidence.",
+      "archive approval"
+    ],
+    "mustNotContain": [
+      "ccsm claude exec --prompt-file"
+    ]
+  }
+}

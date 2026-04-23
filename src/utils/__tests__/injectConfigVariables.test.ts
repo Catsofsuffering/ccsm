@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { injectConfigVariables } from '../installer'
+import { replaceHomePathsInTemplate } from '../installer-template'
 
 function findPackageRoot(): string {
   let dir = import.meta.dirname
@@ -179,4 +180,26 @@ describe('integration: real templates with skip mode', () => {
       expect(result).not.toContain('mcp__contextweaver__codebase-retrieval')
     })
   }
+})
+
+describe('replaceHomePathsInTemplate', () => {
+  it('replaces Claude and Codex home paths independently', () => {
+    const input = [
+      '`~/.claude/settings.json`',
+      '`~/.codex/config.toml`',
+      '`~/.claude/.ccgs`',
+      '`~/.codex/.ccg`',
+    ].join('\n')
+
+    const result = replaceHomePathsInTemplate(input, {
+      claudeHomeDir: 'C:\\Users\\test\\.claude',
+      codexHomeDir: 'C:\\Users\\test\\.codex',
+      canonicalHomeDir: 'C:\\Users\\test\\.ccsm',
+    })
+
+    expect(result).toContain('C:/Users/test/.claude/settings.json')
+    expect(result).toContain('C:/Users/test/.codex/config.toml')
+    expect(result).toContain('C:/Users/test/.ccsm')
+    expect(result).not.toContain('C:/Users/test/.claude/config.toml')
+  })
 })

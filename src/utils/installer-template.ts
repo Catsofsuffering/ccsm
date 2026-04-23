@@ -88,13 +88,18 @@ export function injectConfigVariables(content: string, config: {
 }
 
 export function replaceHomePathsInTemplate(content: string, options: {
-  hostHomeDir: string
+  claudeHomeDir: string
+  codexHomeDir?: string
   canonicalHomeDir?: string
 }): string {
   const userHome = homedir()
-  const canonicalRuntimeDir = options.canonicalHomeDir || join(options.hostHomeDir, CANONICAL_RUNTIME_DIRNAME)
-  const deprecatedRuntimeDirs = DEPRECATED_RUNTIME_DIRNAMES.map(dirname => join(options.hostHomeDir, dirname))
-  const hostDir = options.hostHomeDir
+  const claudeHomeDir = options.claudeHomeDir
+  const codexHomeDir = options.codexHomeDir || join(userHome, '.codex')
+  const canonicalRuntimeDir = options.canonicalHomeDir || join(claudeHomeDir, CANONICAL_RUNTIME_DIRNAME)
+  const deprecatedRuntimeDirs = DEPRECATED_RUNTIME_DIRNAMES.flatMap(dirname => [
+    join(claudeHomeDir, dirname),
+    join(codexHomeDir, dirname),
+  ])
   const toForwardSlash = (path: string) => path.replace(/\\/g, '/')
 
   let processed = content
@@ -104,8 +109,8 @@ export function replaceHomePathsInTemplate(content: string, options: {
   processed = processed.replace(/~\/\.codex\/\.ccg/g, toForwardSlash(canonicalRuntimeDir))
   processed = processed.replace(/\.\.\/\.ccgs/g, '../.ccsm')
   processed = processed.replace(/\.\.\/\.ccg/g, '../.ccsm')
-  processed = processed.replace(/~\/\.claude/g, toForwardSlash(hostDir))
-  processed = processed.replace(/~\/\.codex/g, toForwardSlash(hostDir))
+  processed = processed.replace(/~\/\.claude/g, toForwardSlash(claudeHomeDir))
+  processed = processed.replace(/~\/\.codex/g, toForwardSlash(codexHomeDir))
   processed = processed.replace(/~\//g, `${toForwardSlash(userHome)}/`)
   for (const deprecatedRuntimeDir of deprecatedRuntimeDirs) {
     processed = processed.replace(new RegExp(toForwardSlash(deprecatedRuntimeDir), 'g'), toForwardSlash(canonicalRuntimeDir))

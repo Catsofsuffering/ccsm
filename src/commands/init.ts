@@ -230,6 +230,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
       routing,
       mcpProvider,
       skipImpeccable,
+      claudeHomeDir: getHostHomeDir('claude'),
       codexHomeDir: getHostHomeDir('codex'),
       canonicalHomeDir,
     })

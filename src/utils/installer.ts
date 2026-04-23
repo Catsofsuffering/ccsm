@@ -29,7 +29,7 @@ import {
   PACKAGE_ROOT,
   replaceHomePathsInTemplate,
 } from './installer-template'
-import { getCanonicalHomeDir } from './host'
+import { getHostHomeDir } from './host'
 import { collectInvocableSkills, collectSkills, installSkillCommands, parseFrontmatter } from './skill-registry'
 
 export {
@@ -82,6 +82,7 @@ interface InstallConfig {
 }
 
 interface InstallContext {
+  hostHomeDir: string
   claudeHomeDir: string
   canonicalHomeDir: string
   codexHomeDir: string
@@ -141,7 +142,8 @@ async function copyMdTemplates(
       if (options.inject)
         content = injectConfigVariables(content, ctx.config)
       content = replaceHomePathsInTemplate(content, {
-        hostHomeDir: ctx.claudeHomeDir,
+        claudeHomeDir: ctx.claudeHomeDir,
+        codexHomeDir: ctx.codexHomeDir,
         canonicalHomeDir: ctx.canonicalHomeDir,
       })
       await fs.writeFile(destFile, content, 'utf-8')
@@ -153,7 +155,7 @@ async function copyMdTemplates(
 }
 
 async function installCommandFiles(ctx: InstallContext, workflowIds: string[]): Promise<void> {
-  const commandsDir = join(ctx.claudeHomeDir, 'commands', CANONICAL_NAMESPACE)
+  const commandsDir = join(ctx.hostHomeDir, 'commands', CANONICAL_NAMESPACE)
   await fs.ensureDir(commandsDir)
 
   for (const workflowId of workflowIds) {
@@ -179,7 +181,8 @@ async function installCommandFiles(ctx: InstallContext, workflowIds: string[]): 
           let content = await fs.readFile(srcFile, 'utf-8')
           content = injectConfigVariables(content, ctx.config)
           content = replaceHomePathsInTemplate(content, {
-            hostHomeDir: ctx.claudeHomeDir,
+            claudeHomeDir: ctx.claudeHomeDir,
+            codexHomeDir: ctx.codexHomeDir,
             canonicalHomeDir: ctx.canonicalHomeDir,
           })
           await fs.writeFile(destFile, content, 'utf-8')
@@ -200,7 +203,7 @@ async function installAgentFiles(ctx: InstallContext): Promise<void> {
     await copyMdTemplates(
       ctx,
       join(ctx.templateDir, 'commands', 'agents'),
-      join(ctx.claudeHomeDir, 'agents', CANONICAL_NAMESPACE),
+      join(ctx.hostHomeDir, 'agents', CANONICAL_NAMESPACE),
       { inject: true },
     )
   }
@@ -282,7 +285,7 @@ async function installSkillFiles(ctx: InstallContext): Promise<void> {
   try {
     const oldSkillsRoots = [
       join(ctx.canonicalHomeDir, 'skills'),
-      join(ctx.claudeHomeDir, 'skills'),
+      join(ctx.hostHomeDir, 'skills'),
     ]
     const legacyItems = ['tools', 'orchestration', 'SKILL.md', 'run_skill.js']
     const migrationRoot = oldSkillsRoots.find(asyncCandidate => fs.existsSync(join(asyncCandidate, 'tools')))
@@ -319,7 +322,8 @@ async function installSkillFiles(ctx: InstallContext): Promise<void> {
         else if (entry.name.endsWith('.md')) {
           const content = await fs.readFile(fullPath, 'utf-8')
           const processed = replaceHomePathsInTemplate(content, {
-            hostHomeDir: ctx.claudeHomeDir,
+            claudeHomeDir: ctx.claudeHomeDir,
+            codexHomeDir: ctx.codexHomeDir,
             canonicalHomeDir: ctx.canonicalHomeDir,
           })
           if (processed !== content)
@@ -369,7 +373,8 @@ async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
       let content = await fs.readFile(skillFile, 'utf-8')
       content = injectConfigVariables(content, ctx.config)
       content = replaceHomePathsInTemplate(content, {
-        hostHomeDir: ctx.claudeHomeDir,
+        claudeHomeDir: ctx.claudeHomeDir,
+        codexHomeDir: ctx.codexHomeDir,
         canonicalHomeDir: ctx.canonicalHomeDir,
       })
       const destDir = join(codexSkillsDir, skillName)
@@ -398,7 +403,7 @@ async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
 async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void> {
   const skillsTemplateDir = join(ctx.templateDir, 'skills')
   const skillsInstallDir = join(ctx.canonicalHomeDir, 'skills', CANONICAL_NAMESPACE)
-  const commandsDir = join(ctx.claudeHomeDir, 'commands', CANONICAL_NAMESPACE)
+  const commandsDir = join(ctx.hostHomeDir, 'commands', CANONICAL_NAMESPACE)
 
   if (!(await fs.pathExists(skillsTemplateDir)))
     return
@@ -438,7 +443,7 @@ async function installRuleFiles(ctx: InstallContext): Promise<void> {
     const installed = await copyMdTemplates(
       ctx,
       join(ctx.templateDir, 'rules'),
-      join(ctx.claudeHomeDir, 'rules'),
+      join(ctx.hostHomeDir, 'rules'),
     )
     if (installed.length > 0)
       ctx.result.installedRules = true
@@ -450,10 +455,10 @@ async function installRuleFiles(ctx: InstallContext): Promise<void> {
 }
 
 async function cleanupDeprecatedEntryPoints(ctx: InstallContext): Promise<void> {
-  const deprecatedCommandDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.claudeHomeDir, 'commands', namespace))
-  const deprecatedAgentDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.claudeHomeDir, 'agents', namespace))
-  const deprecatedSkillDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.claudeHomeDir, 'skills', namespace))
-  const deprecatedPromptDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.claudeHomeDir, 'prompts', namespace))
+  const deprecatedCommandDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'commands', namespace))
+  const deprecatedAgentDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'agents', namespace))
+  const deprecatedSkillDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'skills', namespace))
+  const deprecatedPromptDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'prompts', namespace))
 
   for (const dir of [
     ...deprecatedCommandDirs,
@@ -467,7 +472,7 @@ async function cleanupDeprecatedEntryPoints(ctx: InstallContext): Promise<void> 
   }
 
   for (const ruleFile of DEPRECATED_RULE_FILES) {
-    const rulePath = join(ctx.claudeHomeDir, 'rules', ruleFile)
+    const rulePath = join(ctx.hostHomeDir, 'rules', ruleFile)
     if (await fs.pathExists(rulePath)) {
       await fs.remove(rulePath)
     }
@@ -498,12 +503,14 @@ export async function installWorkflows(
     }
     mcpProvider?: string
     skipImpeccable?: boolean
+    claudeHomeDir?: string
     codexHomeDir?: string
     canonicalHomeDir?: string
   },
 ): Promise<InstallResult> {
   const ctx: InstallContext = {
-    claudeHomeDir: installDir,
+    hostHomeDir: installDir,
+    claudeHomeDir: config?.claudeHomeDir || getHostHomeDir('claude'),
     canonicalHomeDir: config?.canonicalHomeDir || join(installDir, CANONICAL_RUNTIME_DIRNAME),
     codexHomeDir: config?.codexHomeDir || join(homedir(), '.codex'),
     codexSkillConflicts: new Set<string>(),
@@ -537,7 +544,7 @@ export async function installWorkflows(
     return ctx.result
   }
 
-  await fs.ensureDir(join(ctx.claudeHomeDir, 'commands', CANONICAL_NAMESPACE))
+  await fs.ensureDir(join(ctx.hostHomeDir, 'commands', CANONICAL_NAMESPACE))
   await fs.ensureDir(join(ctx.canonicalHomeDir, 'prompts'))
 
   await installCommandFiles(ctx, workflowIds)

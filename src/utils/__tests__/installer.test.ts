@@ -311,6 +311,7 @@ describe('skills namespace isolation', () => {
 describe('Codex workflow entrypoint', () => {
   const tmpDir = join(tmpdir(), `ccsm-test-codex-entry-${Date.now()}`)
   const codexHomeDir = join(tmpDir, '.codex-home')
+  const claudeHomeDir = join(tmpDir, '.claude-home')
 
   afterAll(async () => {
     await fs.remove(tmpDir)
@@ -319,6 +320,7 @@ describe('Codex workflow entrypoint', () => {
   it('installs top-level Codex workflow skills for the primary path', { timeout: 60_000 }, async () => {
     const result = await installWorkflows([SAMPLE_WORKFLOW_ID], tmpDir, true, {
       mcpProvider: 'skip',
+      claudeHomeDir,
       codexHomeDir,
     })
 
@@ -332,6 +334,14 @@ describe('Codex workflow entrypoint', () => {
     ])
     expect(fs.existsSync(join(codexHomeDir, 'skills', 'spec-init', 'SKILL.md'))).toBe(true)
     expect(fs.existsSync(join(codexHomeDir, 'skills', 'spec-review', 'SKILL.md'))).toBe(true)
+
+    const specImplSkill = await fs.readFile(join(codexHomeDir, 'skills', 'spec-impl', 'SKILL.md'), 'utf-8')
+    expect(specImplSkill).toContain('The first implementation action is dispatch, not local coding.')
+    expect(specImplSkill).toContain('must not edit product code or start implementation locally.')
+    expect(specImplSkill).toContain('stop and report the workflow as blocked instead of continuing with local implementation.')
+    expect(specImplSkill).toContain(`${claudeHomeDir.replace(/\\/g, '/')}/settings.json`)
+    expect(specImplSkill).toContain(`${codexHomeDir.replace(/\\/g, '/')}/config.toml`)
+    expect(specImplSkill).not.toContain(`${codexHomeDir.replace(/\\/g, '/')}/settings.json`)
   })
 
   it('uninstall only removes CCG-owned Codex workflow skills', { timeout: 60_000 }, async () => {

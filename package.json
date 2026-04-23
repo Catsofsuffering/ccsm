@@ -64,6 +64,7 @@
     "monitor:build": "npm --prefix claude-monitor/client run build",
     "monitor:start": "node claude-monitor/server/index.js",
     "monitor:test": "node --test claude-monitor/server/__tests__/*.test.js && npm --prefix claude-monitor/client run test",
+    "skills:eval-installed": "node scripts/eval-installed-spec-skills.mjs",
     "start": "node bin/ccsm.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build",
