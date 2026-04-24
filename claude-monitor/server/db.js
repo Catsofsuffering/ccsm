@@ -251,6 +251,15 @@ try {
   ).run();
 }
 
+// Migrate: add run_id column for deterministic CCSM run-to-session correlation.
+// CCSM generates a run_id that needs to be correlated with monitor sessions.
+try {
+  db.prepare("SELECT run_id FROM sessions LIMIT 1").get();
+} catch {
+  db.prepare("ALTER TABLE sessions ADD COLUMN run_id TEXT").run();
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id)").run();
+}
+
 // Startup cleanup: mark stale active sessions as completed.
 // Legacy sessions (created before SessionEnd hook) will never receive a SessionEnd event,
 // so they stay "active" forever. Complete any active session whose last event is older than
@@ -302,6 +311,10 @@ const stmts = {
   reactivateSession: db.prepare(
     "UPDATE sessions SET status = 'active', ended_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
   ),
+  updateSessionRunId: db.prepare(
+    "UPDATE sessions SET run_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
+  ),
+  getSessionByRunId: db.prepare("SELECT * FROM sessions WHERE run_id = ?"),
 
   getAgent: db.prepare("SELECT * FROM agents WHERE id = ?"),
   listAgents: db.prepare("SELECT * FROM agents ORDER BY started_at DESC LIMIT ? OFFSET ?"),

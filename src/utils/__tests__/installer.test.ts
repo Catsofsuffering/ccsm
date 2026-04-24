@@ -342,6 +342,9 @@ describe('Codex workflow entrypoint', () => {
     expect(specImplSkill).toContain(`${claudeHomeDir.replace(/\\/g, '/')}/settings.json`)
     expect(specImplSkill).toContain(`${codexHomeDir.replace(/\\/g, '/')}/config.toml`)
     expect(specImplSkill).not.toContain(`${codexHomeDir.replace(/\\/g, '/')}/settings.json`)
+
+    // spec-impl dispatch must use --status-driven for monitor correlation
+    expect(specImplSkill).toContain('--status-driven')
   })
 
   it('uninstall only removes CCG-owned Codex workflow skills', { timeout: 60_000 }, async () => {

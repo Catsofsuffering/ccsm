@@ -1,6 +1,6 @@
 import ansis from 'ansis'
 import { getCanonicalHomeDir, getHostHomeDir } from '../utils/host'
-import { configureClaudeMonitorHooks, prepareClaudeMonitorRuntime, prepareCodexMonitorRuntime, startClaudeMonitor } from '../utils/claude-monitor'
+import { configureClaudeMonitorHooks, prepareClaudeMonitorRuntime, prepareCodexMonitorRuntime, restartClaudeMonitor, startClaudeMonitor } from '../utils/claude-monitor'
 import { ensureCodexWorkspaceTrust } from '../utils/codex-config'
 
 export async function installMonitorRuntime(): Promise<void> {
@@ -36,6 +36,15 @@ export async function startMonitor(detached = false): Promise<void> {
 
   console.log()
   console.log(ansis.green(`  Claude monitor ${result.reused ? 'already running' : 'started'}`))
+  console.log(ansis.cyan(`    ${result.url}`))
+  console.log(ansis.gray(`    monitor: ${result.monitorDir}`))
+}
+
+export async function restartMonitor(): Promise<void> {
+  const result = await restartClaudeMonitor({ canonicalHomeDir: getCanonicalHomeDir() })
+
+  console.log()
+  console.log(ansis.green(`  Claude monitor restarted`))
   console.log(ansis.cyan(`    ${result.url}`))
   console.log(ansis.gray(`    monitor: ${result.monitorDir}`))
 }

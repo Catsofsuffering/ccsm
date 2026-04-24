@@ -1,11 +1,12 @@
 import ansis from 'ansis'
-import { buildClaudeExecArgs, buildClaudeLaunchEnv, getDefaultClaudePermissionMode, resolveClaudeLaunchSpec, runClaudeExec } from '../utils/claude-cli'
+import { buildClaudeExecArgs, buildClaudeLaunchEnv, getDefaultClaudePermissionMode, resolveClaudeLaunchSpec, runClaudeExec, RunClaudeExecResult } from '../utils/claude-cli'
 
 interface ClaudeExecCommandOptions {
   cwd?: string
   prompt?: string
   promptFile?: string
   disableAgentTeams?: boolean
+  statusDriven?: boolean
 }
 
 const CLAUDE_EXEC_KNOWN_OPTIONS = new Set([
@@ -13,6 +14,7 @@ const CLAUDE_EXEC_KNOWN_OPTIONS = new Set([
   '--prompt-file',
   '--cwd',
   '--disable-agent-teams',
+  '--status-driven',
 ])
 
 function isValueAttachedOption(token: string): boolean {
@@ -42,7 +44,7 @@ export function extractClaudeExecArgs(argv: string[]): string[] {
     }
 
     if (CLAUDE_EXEC_KNOWN_OPTIONS.has(token)) {
-      if (token !== '--disable-agent-teams') {
+      if (token !== '--disable-agent-teams' && token !== '--status-driven') {
         i++
       }
       continue
@@ -57,24 +59,36 @@ export function extractClaudeExecArgs(argv: string[]): string[] {
 export async function execClaude(
   claudeArgs: string[],
   options: ClaudeExecCommandOptions,
-): Promise<void> {
+): Promise<number | RunClaudeExecResult> {
   const rawClaudeArgs = extractClaudeExecArgs(process.argv)
-  const exitCode = await runClaudeExec({
+  const result = await runClaudeExec({
     claudeArgs: rawClaudeArgs.length > 0 ? rawClaudeArgs : claudeArgs,
     cwd: options.cwd,
     prompt: options.prompt,
     promptFile: options.promptFile,
     enableAgentTeams: !options.disableAgentTeams,
+    statusDriven: options.statusDriven,
   })
 
-  if (exitCode !== 0) {
-    process.exitCode = exitCode
+  if (typeof result === 'number') {
+    if (result !== 0) {
+      process.exitCode = result
+    }
   }
+  else {
+    if (result.exitCode !== 0) {
+      process.exitCode = result.exitCode
+    }
+    // Status-driven path: output structured result as JSON to stdout
+    console.log(JSON.stringify(result, null, 2))
+  }
+
+  return result
 }
 
 export async function doctorClaude(options: Pick<ClaudeExecCommandOptions, 'disableAgentTeams'> = {}): Promise<void> {
   const launchSpec = await resolveClaudeLaunchSpec()
-  const env = buildClaudeLaunchEnv(process.env, !options.disableAgentTeams)
+  const env = buildClaudeLaunchEnv(process.env, { enableAgentTeams: !options.disableAgentTeams })
   const permissionMode = getDefaultClaudePermissionMode(env, !options.disableAgentTeams)
   const defaultClaudeArgs = buildClaudeExecArgs([], env, !options.disableAgentTeams)
   const hasOverride = Boolean(process.env.CCSM_CLAUDE_PATH)

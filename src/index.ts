@@ -2,7 +2,7 @@
 export * from './types'
 export { init } from './commands/init'
 export { doctorClaude, execClaude } from './commands/claude'
-export { installMonitorHooks, installMonitorRuntime, startMonitor } from './commands/monitor'
+export { installMonitorHooks, installMonitorRuntime, restartMonitor, startMonitor } from './commands/monitor'
 export { showMainMenu } from './commands/menu'
 export { update } from './commands/update'
 export { i18n, initI18n, changeLanguage } from './i18n'
@@ -27,6 +27,7 @@ export {
   getInstalledCodexMonitorDir,
   prepareClaudeMonitorRuntime,
   prepareCodexMonitorRuntime,
+  restartClaudeMonitor,
   startClaudeMonitor,
 } from './utils/claude-monitor'
 export {

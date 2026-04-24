@@ -1,5 +1,9 @@
 /**
- * @file Express router for handling incoming hook events from Claude CLI. It processes various hook types (PreToolUse, PostToolUse, Stop, SubagentStop, SessionStart, SessionEnd, Notification), updates session and agent states accordingly in the database, extracts token usage from transcripts, detects compaction events, and broadcasts updates to connected clients via WebSocket.
+ * @file Express router for handling incoming hook events from Claude CLI and Claude Agent Teams.
+ * Processes various hook types (PreToolUse, PostToolUse, Stop, SubagentStop, SessionStart,
+ * SessionEnd, Notification), updates session and agent states accordingly in the database,
+ * extracts token usage from transcripts, detects compaction events, normalizes Agent Teams
+ * teammate return signals, and broadcasts updates to connected clients via WebSocket.
  * @author Son Nguyen <hoangson091104@gmail.com>
  */
 
@@ -14,16 +18,41 @@ const router = Router();
 // Shared cache instance — reused by periodic compaction scanner via router.transcriptCache
 const transcriptCache = new TranscriptCache();
 
+/**
+ * Deduplicate event insertion by checking if a semantically equivalent event
+ * already exists for the same session, agent, type, and summary within a small
+ * time window. Prevents duplicate entries when the same teammate return is
+ * observed through both hook payload and transcript processing.
+ */
+function isDuplicateEvent(sessionId, agentId, eventType, summary) {
+  if (!sessionId || !agentId) return false;
+  // Check for an existing event with the same signature inserted within the last 30 seconds
+  const existing = db
+    .prepare(
+      `SELECT 1 FROM events
+       WHERE session_id = ? AND agent_id = ? AND event_type = ? AND summary = ?
+         AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')
+       LIMIT 1`
+    )
+    .get(sessionId, agentId, eventType, summary);
+  return !!existing;
+}
+
 function ensureSession(sessionId, data) {
   let session = stmts.getSession.get(sessionId);
   if (!session) {
+    // Use project_cwd (used by Agent Teams hooks) as fallback for session cwd
+    const sessionCwd = data.cwd || data.project_cwd || null;
+    const initialMetadata = data.project_cwd
+      ? JSON.stringify({ project_cwd: data.project_cwd })
+      : null;
     stmts.insertSession.run(
       sessionId,
       data.session_name || `Session ${sessionId.slice(0, 8)}`,
       "active",
-      data.cwd || null,
+      sessionCwd,
       data.model || null,
-      null
+      initialMetadata
     );
     session = stmts.getSession.get(sessionId);
     broadcast("session_created", session);
@@ -44,6 +73,27 @@ function ensureSession(sessionId, data) {
     );
     broadcast("agent_created", stmts.getAgent.get(mainAgentId));
   }
+
+  // For existing sessions, store project_cwd in metadata if present (Agent Teams events)
+  // Also store run_id in dedicated column for deterministic CCSM run-to-session correlation.
+  if ((data.project_cwd || data.run_id) && session) {
+    const meta = session.metadata ? JSON.parse(session.metadata) : {};
+    let needsMetaUpdate = false;
+    if (data.project_cwd && meta.project_cwd !== data.project_cwd) {
+      meta.project_cwd = data.project_cwd;
+      needsMetaUpdate = true;
+    }
+    // Persist run_id to dedicated column for deterministic lookup
+    if (data.run_id && session.run_id !== data.run_id) {
+      stmts.updateSessionRunId.run(data.run_id, sessionId);
+      session = stmts.getSession.get(sessionId);
+    }
+    if (needsMetaUpdate) {
+      stmts.updateSession.run(null, null, null, JSON.stringify(meta), sessionId);
+      session = stmts.getSession.get(sessionId);
+    }
+  }
+
   return session;
 }
 
@@ -243,6 +293,9 @@ const processEvent = db.transaction((hookType, data) => {
       }
 
       if (matchingSub) {
+        // Collect return output from the subagent: last_assistant_message or transcript-derived output
+        const returnOutput = data.last_assistant_message || null;
+
         stmts.updateAgent.run(
           null,
           "completed",
@@ -255,6 +308,35 @@ const processEvent = db.transaction((hookType, data) => {
         broadcast("agent_updated", stmts.getAgent.get(matchingSub.id));
         agentId = matchingSub.id;
         summary = `Subagent completed: ${matchingSub.name}`;
+
+        // If there is return output, also broadcast a team_return event immediately
+        // so clients see the teammate output without waiting for session completion.
+        if (returnOutput) {
+          const returnSummary = `Teammate return: ${matchingSub.name} — ${returnOutput.slice(0, 120)}`;
+          if (!isDuplicateEvent(sessionId, agentId, "TeamReturn", returnSummary)) {
+            stmts.insertEvent.run(
+              sessionId,
+              agentId,
+              "TeamReturn",
+              null,
+              returnSummary,
+              JSON.stringify({
+                agent_name: matchingSub.name,
+                agent_type: matchingSub.subagent_type || data.agent_type || null,
+                output: returnOutput,
+                source: "SubagentStop",
+              })
+            );
+            broadcast("new_event", {
+              session_id: sessionId,
+              agent_id: agentId,
+              event_type: "TeamReturn",
+              tool_name: null,
+              summary: returnSummary,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
 
         // Session stays active — SubagentStop just means one subagent finished,
         // the session is not over until the user explicitly closes it.
@@ -317,6 +399,24 @@ const processEvent = db.transaction((hookType, data) => {
       if (/compact|compress|context.*(reduc|truncat|summar)/i.test(msg)) {
         eventType = "Compaction";
         summary = msg;
+      }
+      // Detect Agent Teams mailbox/SendMessage-style return signals.
+      // When a teammate sends a return packet through SendMessage or mailbox,
+      // the notification message contains structured return data or output patterns.
+      else if (
+        /\b(teammate|team.agent|mailbox|return.*packet|agent.*return|SendMessage|SubagentStop.*output)\b/i.test(msg)
+      ) {
+        eventType = "TeamReturn";
+        summary = msg;
+        // Try to associate with a known working subagent in the session
+        const sessionAgents = stmts.listAgentsBySession.all(sessionId);
+        const workingSubs = sessionAgents.filter(
+          (a) => a.type === "subagent" && a.status === "working"
+        );
+        if (workingSubs.length > 0) {
+          // Associate with the deepest working subagent (most likely the sender)
+          agentId = workingSubs[workingSubs.length - 1].id;
+        }
       } else {
         summary = msg;
       }
@@ -497,6 +597,21 @@ const processEvent = db.transaction((hookType, data) => {
 
   // Bump session updated_at on every event
   stmts.touchSession.run(sessionId);
+
+  // Deduplication: skip event insertion and live broadcast when the same signature
+  // already exists within 30 seconds (handles duplicate hook delivery).
+  const isDuplicate = isDuplicateEvent(sessionId, agentId, eventType, summary);
+  if (isDuplicate) {
+    return {
+      session_id: sessionId,
+      agent_id: agentId,
+      event_type: eventType,
+      tool_name: toolName,
+      summary,
+      duplicate: true,
+      created_at: new Date().toISOString(),
+    };
+  }
 
   stmts.insertEvent.run(
     sessionId,

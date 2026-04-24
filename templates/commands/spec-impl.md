@@ -45,6 +45,7 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
    - 基于 return packet、自身代码审查和本地验证做验收。
    - 运行 handoff contract 里要求的测试/检查。
    - 必要时运行 `/ccsm:spec-review` 作为独立验收门禁。
+   - 当使用 `--status-driven` 结果时，执行完成取决于 monitor 的 `sessionStatus`；Return Packet 是 monitor `outputs` 内的内容，而非原始终端文本。
 
 6. 失败时打回
    - 若出现任一情况，必须打回执行层：

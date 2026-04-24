@@ -55,9 +55,15 @@ describe('buildClaudeLaunchEnv', () => {
   })
 
   it('can skip Agent Teams flags', () => {
-    const env = buildClaudeLaunchEnv({}, false)
+    const env = buildClaudeLaunchEnv({}, { enableAgentTeams: false })
     expect(env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined()
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBeUndefined()
+  })
+
+  it('can inject runId and workspaceRoot', () => {
+    const env = buildClaudeLaunchEnv({}, { runId: 'test-run-123', workspaceRoot: '/tmp/workspace' })
+    expect(env.CCSM_RUN_ID).toBe('test-run-123')
+    expect(env.CCSM_WORKSPACE_ROOT).toBe('/tmp/workspace')
   })
 })
 
@@ -174,7 +180,7 @@ describe('spec-impl skill', () => {
     const packageRoot = findPackageRoot()
     const content = readFileSync(join(packageRoot, 'templates', 'codex-skills', 'spec-impl', 'SKILL.md'), 'utf-8')
 
-    expect(content).toContain('ccsm claude exec --prompt-file')
+    expect(content).toContain('ccsm claude exec --status-driven --prompt-file')
     expect(content).not.toContain('```powershell')
     expect(content).not.toContain('claude -p $prompt')
   })

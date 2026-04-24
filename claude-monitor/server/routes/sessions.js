@@ -15,6 +15,16 @@ router.get("/", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 1000);
   const offset = parseInt(req.query.offset) || 0;
   const status = req.query.status;
+  const runId = req.query.run_id;
+
+  // If run_id is provided, look up the single matching session directly
+  if (runId) {
+    const session = stmts.getSessionByRunId.get(runId);
+    if (!session) {
+      return res.json({ sessions: [], limit, offset, run_id: runId });
+    }
+    return res.json({ sessions: [session], limit, offset, run_id: runId });
+  }
 
   const rows = status
     ? stmts.listSessionsByStatus.all(status, limit, offset)
@@ -77,7 +87,7 @@ router.get("/:id/outputs", (req, res) => {
 });
 
 router.post("/", (req, res) => {
-  const { id, name, cwd, model, metadata } = req.body;
+  const { id, name, cwd, model, metadata, run_id } = req.body;
   if (!id) {
     return res.status(400).json({ error: { code: "INVALID_INPUT", message: "id is required" } });
   }
@@ -95,13 +105,18 @@ router.post("/", (req, res) => {
     model || null,
     metadata ? JSON.stringify(metadata) : null
   );
+
+  if (run_id) {
+    stmts.updateSessionRunId.run(run_id, id);
+  }
+
   const session = stmts.getSession.get(id);
   broadcast("session_created", session);
   res.status(201).json({ session, created: true });
 });
 
 router.patch("/:id", (req, res) => {
-  const { name, status, ended_at, metadata } = req.body;
+  const { name, status, ended_at, metadata, run_id } = req.body;
   const existing = stmts.getSession.get(req.params.id);
   if (!existing) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: "Session not found" } });
@@ -114,6 +129,11 @@ router.patch("/:id", (req, res) => {
     metadata ? JSON.stringify(metadata) : null,
     req.params.id
   );
+
+  // Update run_id separately since updateSession doesn't handle it
+  if (run_id !== undefined) {
+    stmts.updateSessionRunId.run(run_id, req.params.id);
+  }
 
   const session = stmts.getSession.get(req.params.id);
   broadcast("session_updated", session);

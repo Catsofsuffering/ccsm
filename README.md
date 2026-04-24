@@ -95,6 +95,21 @@ Current limitation: Codex skills are prompt-level workflow contracts, not a hard
 Use spec-impl strictly: prepare the execution packet, dispatch with Claude Agent Teams via ccsm claude exec, and do not edit product code locally unless Claude execution is blocked and I explicitly approve a fallback.
 ```
 
+### Status-Driven Exec (Recommended Default)
+
+When using `spec-impl`, the recommended execution model is **status-driven exec**:
+
+- **Completion signal**: `sessionStatus` tracks whether a session finished successfully, failed, or was interrupted. This is the authoritative signal for Codex acceptance decisions.
+- **Execution Return Packet**: Structured output produced by `ccsm claude exec` and visible in the monitor's workflow view under `outputs`. Contains implementation evidence that Codex validates against the handoff contract.
+- **Monitor correlation**: The monitor correlates `sessionStatus` with execution logs so you can verify completion and inspect evidence in one place.
+- **Fallback**: If monitor correlation is unavailable (e.g., the monitor is offline or session tracking cannot be established), treat the run as blocked until correlation is restored. Do not silently fall back to assuming success without an authenticated `sessionStatus`.
+
+Example prompt for reliable `spec-impl` behavior:
+
+```text
+Run spec-impl with status-driven exec: dispatch via ccsm claude exec, wait for sessionStatus confirmation, then verify the Execution Return Packet in the monitor before accepting implementation results.
+```
+
 ## CLI Surface
 
 The currently maintained command surface is:
@@ -104,6 +119,7 @@ ccsm
 ccsm init
 ccsm monitor
 ccsm monitor --detach
+ccsm monitor restart
 ccsm claude
 ccsm config mcp
 ccsm diagnose-mcp
@@ -115,6 +131,7 @@ What these do:
 - `ccsm`: open the interactive menu.
 - `ccsm init`: install and configure the workflow.
 - `ccsm monitor`: start the local Claude hook monitor.
+- `ccsm monitor restart`: restart the local monitor and bind it to the current workspace.
 - `ccsm claude`: launch Claude through the CCSM dispatcher for Codex handoff scenarios.
 - `ccsm config mcp`: configure MCP tokens.
 - `ccsm diagnose-mcp`: inspect MCP configuration problems.

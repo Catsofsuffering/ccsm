@@ -95,6 +95,21 @@ openspec archive <change-id>
 严格使用 spec-impl：先整理 execution packet，通过 ccsm claude exec 派发给 Claude Agent Teams 执行；在 Claude 执行未成功启动前，不要由 Codex 本地修改产品代码，除非我明确批准 fallback。
 ```
 
+### 状态驱动执行（推荐默认模式）
+
+使用 `spec-impl` 时，推荐的执行模型是**状态驱动执行**：
+
+- **完成信号**：`sessionStatus` 追踪 session 是否成功完成、失败或中断。这是 Codex 验收决策的权威信号。
+- **执行返回包（Execution Return Packet）**：`ccsm claude exec` 生成的结构化输出，在 monitor 的 workflow 视图中可见，位于 `outputs` 下。包含 Codex 用来对照交接契约进行验证的实现证据。
+- **Monitor 关联**：Monitor 将 `sessionStatus` 与执行日志关联，让你可以在同一位置验证完成状态并检查证据。
+- **Fallback 行为**：如果 monitor 关联不可用（例如 monitor 离线或无法建立 session 追踪），应将本次执行视为 blocked，直到关联恢复。不要在未获得认证的 `sessionStatus` 情况下静默假设成功。
+
+可靠 `spec-impl` 行为的示例 prompt：
+
+```text
+使用状态驱动执行模式运行 spec-impl：通过 ccsm claude exec 派发，等待 sessionStatus 确认，然后在 monitor 中验证 Execution Return Packet 后再接受实现结果。
+```
+
 ## CLI 命令面
 
 当前维护中的命令主要是：
@@ -104,6 +119,7 @@ ccsm
 ccsm init
 ccsm monitor
 ccsm monitor --detach
+ccsm monitor restart
 ccsm claude
 ccsm config mcp
 ccsm diagnose-mcp
@@ -115,6 +131,7 @@ ccsm fix-mcp
 - `ccsm`：打开交互式菜单。
 - `ccsm init`：安装并初始化工作流。
 - `ccsm monitor`：启动本地 Claude hook monitor。
+- `ccsm monitor restart`：重启本地 monitor，并绑定到当前工作区。
 - `ccsm claude`：通过 CCSM dispatcher 启动 Claude，适用于 Codex 交接执行场景。
 - `ccsm config mcp`：配置 MCP token。
 - `ccsm diagnose-mcp`：诊断 MCP 配置问题。

@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import fs from 'fs-extra'
+import { randomUUID } from 'node:crypto'
+import { DEFAULT_MONITOR_PORT } from './claude-monitor'
 
 const CLAUDE_PACKAGE_NAME = '@anthropic-ai/claude-code'
 const LOCAL_BYPASS_HOSTS = ['127.0.0.1', 'localhost']
@@ -25,6 +27,22 @@ export interface RunClaudeExecOptions extends ResolveClaudeLaunchOptions {
   claudeArgs?: string[]
   enableAgentTeams?: boolean
   stdio?: SpawnOptions['stdio']
+  /** Enable status-driven exec: wait for monitor session terminal state instead of process exit */
+  statusDriven?: boolean
+  /** Run ID for monitor correlation (generated automatically when statusDriven is true) */
+  runId?: string
+  /** Monitor port for status-driven exec (default: 4820) */
+  monitorPort?: number
+  /** Workspace root path for CCSM_WORKSPACE_ROOT env var */
+  workspaceRoot?: string
+}
+
+/** Result of a status-driven exec invocation */
+export interface RunClaudeExecResult {
+  exitCode: number
+  outputs: unknown
+  sessionStatus: string
+  runId: string
 }
 
 const CLAUDE_PERMISSION_MODE_ARG = '--permission-mode'
@@ -46,10 +64,17 @@ export function mergeNoProxyValue(existing?: string): string {
   return parts.join(',')
 }
 
+export interface BuildClaudeLaunchEnvOptions {
+  enableAgentTeams?: boolean
+  runId?: string
+  workspaceRoot?: string
+}
+
 export function buildClaudeLaunchEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
-  enableAgentTeams = true,
+  options: BuildClaudeLaunchEnvOptions = {},
 ): NodeJS.ProcessEnv {
+  const { enableAgentTeams = true, runId, workspaceRoot } = options
   const nextEnv = { ...baseEnv }
   if (nextEnv.CCSM_CLAUDE_APPEND_LOCAL_NO_PROXY === '1') {
     const mergedNoProxy = mergeNoProxyValue(nextEnv.NO_PROXY || nextEnv.no_proxy)
@@ -60,6 +85,14 @@ export function buildClaudeLaunchEnv(
   if (enableAgentTeams) {
     nextEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
     nextEnv.CLAUDE_CODE_ENABLE_TASKS = '1'
+  }
+
+  if (runId) {
+    nextEnv.CCSM_RUN_ID = runId
+  }
+
+  if (workspaceRoot) {
+    nextEnv.CCSM_WORKSPACE_ROOT = workspaceRoot
   }
 
   return nextEnv
@@ -313,9 +346,95 @@ async function readPrompt(options: Pick<RunClaudeExecOptions, 'prompt' | 'prompt
   return null
 }
 
-export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise<number> {
+async function fetchSessionStatus(port: number, sessionId: string): Promise<{ status: string } | null> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}`)
+    if (!response.ok) return null
+    const data = await response.json() as { session?: { status?: string } }
+    return data.session ? { status: data.session.status ?? 'unknown' } : null
+  }
+  catch {
+    return null
+  }
+}
+
+async function waitForSessionTerminal(
+  port: number,
+  sessionId: string,
+  childExitPromise: Promise<number>,
+  gracePeriodMs: number,
+): Promise<{ status: string; timedOut: boolean; childExitCode: number | null }> {
+  // Race: wait for session terminal state OR child process exit
+  while (true) {
+    const session = await fetchSessionStatus(port, sessionId)
+    if (session && ['completed', 'error', 'abandoned'].includes(session.status)) {
+      return { status: session.status, timedOut: false, childExitCode: null }
+    }
+
+    // Use Promise.race to detect child exit without blocking indefinitely
+    const childRace = Promise.race([
+      childExitPromise.then(code => ({ type: 'child-exit' as const, code })),
+      new Promise<{ type: 'timeout' }>((resolve) => {
+        const timer = setTimeout(() => resolve({ type: 'timeout' }), 500)
+        void timer
+      }),
+    ])
+
+    const result = await childRace
+    if (result.type === 'child-exit') {
+      // Child exited — start grace period from now
+      const graceDeadline = Date.now() + gracePeriodMs
+
+      while (Date.now() < graceDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        const sessionAfterGrace = await fetchSessionStatus(port, sessionId)
+        if (sessionAfterGrace && ['completed', 'error', 'abandoned'].includes(sessionAfterGrace.status)) {
+          return { status: sessionAfterGrace.status, timedOut: false, childExitCode: result.code }
+        }
+      }
+
+      // Grace period exhausted — use child's exit code
+      return { status: 'unknown', timedOut: true, childExitCode: result.code }
+    }
+    // else timeout → continue polling
+  }
+}
+
+async function fetchSessionOutputs(port: number, sessionId: string): Promise<unknown> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/outputs`)
+    if (!response.ok) return null
+    const data = await response.json() as { outputs?: unknown }
+    return data.outputs ?? null
+  }
+  catch {
+    return null
+  }
+}
+
+async function isMonitorAvailable(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`)
+    if (!response.ok) return false
+    const body = await response.json() as { status?: string }
+    return body.status === 'ok'
+  }
+  catch {
+    return false
+  }
+}
+
+export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise<number | RunClaudeExecResult> {
+  const monitorPort = options.monitorPort || DEFAULT_MONITOR_PORT
+  const runId = options.runId || (options.statusDriven ? randomUUID() : undefined)
+  const gracePeriodMs = Number(process.env.GRACE_PERIOD_MS || '30000')
+
   const launchSpec = await resolveClaudeLaunchSpec(options)
-  const env = buildClaudeLaunchEnv(options.env || process.env, options.enableAgentTeams !== false)
+  const env = buildClaudeLaunchEnv(options.env || process.env, {
+    enableAgentTeams: options.enableAgentTeams !== false,
+    runId,
+    workspaceRoot: options.workspaceRoot,
+  })
   const prompt = await readPrompt(options)
   const args = [...launchSpec.args]
 
@@ -326,22 +445,112 @@ export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise
   const finalClaudeArgs = buildClaudeExecArgs(options.claudeArgs, env, options.enableAgentTeams !== false)
   args.push(...finalClaudeArgs)
 
-  return await new Promise<number>((resolvePromise, rejectPromise) => {
-    const child = spawn(launchSpec.command, args, {
-      cwd: options.cwd,
-      env,
-      stdio: options.stdio || 'inherit',
-      shell: false,
+  // Fallback: simple process exit behavior when statusDriven is false or monitor is unavailable
+  if (!options.statusDriven || !(await isMonitorAvailable(monitorPort))) {
+    return await new Promise<number>((resolvePromise, rejectPromise) => {
+      const child = spawn(launchSpec.command, args, {
+        cwd: options.cwd,
+        env,
+        stdio: options.stdio || 'inherit',
+        shell: false,
+      })
+
+      child.on('error', rejectPromise)
+      child.on('close', (code, signal) => {
+        if (signal) {
+          rejectPromise(new Error(`Claude process terminated by signal ${signal}`))
+          return
+        }
+
+        resolvePromise(code ?? 1)
+      })
     })
+  }
 
-    child.on('error', rejectPromise)
-    child.on('close', (code, signal) => {
-      if (signal) {
-        rejectPromise(new Error(`Claude process terminated by signal ${signal}`))
-        return
-      }
+  // Status-driven mode: spawn child, wait for monitor session terminal state, fetch outputs
+  // Hooks create the real session with run_id correlation; we just wait for it
+  let sessionId: string = runId as string
 
-      resolvePromise(code ?? 1)
+  let childExitCode: number | null = null
+
+  const child = spawn(launchSpec.command, args, {
+    cwd: options.cwd,
+    env,
+    stdio: options.stdio || 'inherit',
+    shell: false,
+  })
+
+  child.on('error', (err) => {
+    console.error('Claude process error:', err)
+  })
+
+  const childExitPromise = new Promise<number>((resolve) => {
+    child.on('close', (code) => {
+      childExitCode = code ?? 1
+      resolve(childExitCode)
     })
   })
+
+  // Wait for monitor session to be created with this run_id, then wait for terminal state
+  const createdSessionId = await waitForSessionCreation(monitorPort, runId!, gracePeriodMs)
+  if (createdSessionId) {
+    sessionId = createdSessionId
+  }
+
+  // Wait for monitor session to reach terminal state, with grace period after child exits
+  const { status: sessionStatus, timedOut } = await waitForSessionTerminal(
+    monitorPort,
+    sessionId,
+    childExitPromise,
+    gracePeriodMs,
+  )
+
+  if (timedOut) {
+    // Grace period expired — fall back to child's exit code
+    if (childExitCode !== null) {
+      return childExitCode
+    }
+    // Child still running but session never reached terminal state
+    return childExitCode ?? 1
+  }
+
+  // Fetch structured outputs from monitor
+  const outputs = await fetchSessionOutputs(monitorPort, sessionId)
+
+  // Determine exit code: completed=0, error/abandoned=childExitCode??1
+  const exitCode = sessionStatus === 'completed'
+    ? 0
+    : (childExitCode ?? 1);
+
+  return {
+    exitCode,
+    outputs,
+    sessionStatus,
+    runId: sessionId,
+  }
+}
+
+async function waitForSessionCreation(
+  port: number,
+  runId: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      // Try to find session by run_id via the filter endpoint
+      const response = await fetch(`http://127.0.0.1:${port}/api/sessions?run_id=${encodeURIComponent(runId)}`)
+      if (response.ok) {
+        const data = await response.json() as { sessions?: Array<{ id?: string }> }
+        if (data.sessions && data.sessions.length > 0 && data.sessions[0].id) {
+          return data.sessions[0].id
+        }
+      }
+    }
+    catch {
+      // Continue polling
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  return null
 }

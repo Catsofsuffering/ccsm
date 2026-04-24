@@ -442,6 +442,58 @@ export async function prepareCodexMonitorRuntime(options?: {
   }
 }
 
+export async function restartClaudeMonitor(options?: {
+  canonicalHomeDir?: string
+  installDir?: string
+  port?: number
+}): Promise<{ url: string, monitorDir: string, wasRunning: boolean }> {
+  const port = options?.port || DEFAULT_MONITOR_PORT
+  const canonicalHomeDir = options?.canonicalHomeDir || options?.installDir || getCanonicalHomeDir()
+  const monitorDir = await resolveInstalledMonitorDir(canonicalHomeDir, CLAUDE_MONITOR_NAME)
+
+  if (!await fs.pathExists(join(monitorDir, 'server', 'index.js'))) {
+    throw new Error(`Claude monitor is not installed at ${monitorDir}`)
+  }
+
+  const wasRunning = await isMonitorHealthy(port)
+  const listeningPid = await findListeningPid(port)
+
+  if (wasRunning) {
+    const stopped = await stopMonitorOnPort(port)
+    if (!stopped) {
+      const pid = await findListeningPid(port)
+      if (pid && pid !== process.pid) {
+        throw new Error(
+          `Port ${port} is occupied by an unknown service (PID ${pid}). Stop it manually before restarting.`,
+        )
+      }
+      // Port still occupied but we can't identify the process
+      if (await isMonitorHealthy(port)) {
+        throw new Error(
+          `Port ${port} is occupied by an unknown service. Stop it manually before restarting.`,
+        )
+      }
+    }
+  }
+  else if (listeningPid && listeningPid !== process.pid) {
+    throw new Error(
+      `Port ${port} is occupied by an unknown service (PID ${listeningPid}). Stop it manually before restarting.`,
+    )
+  }
+
+  const result = await startClaudeMonitor({
+    canonicalHomeDir,
+    port,
+    detached: false,
+  })
+
+  return {
+    url: result.url,
+    monitorDir,
+    wasRunning,
+  }
+}
+
 export async function startClaudeMonitor(options?: {
   canonicalHomeDir?: string
   installDir?: string

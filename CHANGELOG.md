@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.29] - 2026-04-24
+
+### Changed
+
+- Hardened the Codex-to-Claude execution path so `ccsm claude exec` reports status-driven results, preserves complete return packets, and avoids treating failed Claude executions as successful handoffs.
+- Updated the installed `spec-impl` and Agent Teams command guidance so Claude Agent Teams remain the default execution worker, including mailbox return protocol and non-interactive shutdown handling.
+- Improved Agent Teams monitoring by capturing team-agent sessions more reliably, adding monitor restart support, and syncing completed monitoring/dispatch changes into the canonical OpenSpec specs.
+- Smoothed Workflow live output updates by removing latest-output panel remount animations, preserving selected Agent context during routine refreshes, and adding a reduced-motion-safe new-output indicator.
+
+---
+
 ## [2.1.28] - 2026-04-23
 
 ### Changed

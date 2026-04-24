@@ -28,8 +28,12 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
 4. Invoke Claude from Codex with a bounded prompt before doing any product-code implementation:
 
 ```bash
-ccsm claude exec --prompt-file .claude/ccsm/claude-dispatch-prompt.txt
+ccsm claude exec --status-driven --prompt-file .claude/ccsm/claude-dispatch-prompt.txt
 ```
+
+   When `--status-driven` is used, Codex reviews structured JSON monitor result fields: `sessionStatus`, `runId`, `exitCode`, and `outputs`. The Execution Return Packet is the content expected inside monitor `outputs`, not raw terminal text.
+
+   Preserve plain `ccsm claude exec` compatibility for fallback/debug flows.
 
    The `ccsm claude exec` path resolves the native Claude binary when available, or falls back to the installed Claude JS entrypoint without relying on shell-specific shims.
    In a standard Claude Code install you should not need to set `CCSM_CLAUDE_PATH`; the launcher checks `PATH` first and only uses `CCSM_CLAUDE_PATH` as a fallback override for non-standard installs.
@@ -43,7 +47,7 @@ ccsm claude exec --prompt-file .claude/ccsm/claude-dispatch-prompt.txt
    Require every teammate prompt to define its mailbox return protocol explicitly: if `SendMessage` is deferred, the teammate must run `ToolSearch select:SendMessage` before its first mailbox reply, and any string reply must include both `summary` and `message`.
    Tell Claude that a teammate is not considered finished just because it goes idle or emits `SubagentStop`; the required report only counts after the team lead receives the teammate mailbox message.
    In non-interactive `claude -p` sessions, require Claude to emit the full return packet before shutdown, then follow the official shutdown order: gracefully shut down teammates, wait for approvals, and run cleanup exactly once.
-   If cleanup reports success or `nothing to clean up`, do not let Claude keep retrying cleanup. Treat the last complete return packet as terminal output and stop the host Claude process if it falls into the known shutdown-reminder loop.
+   If cleanup reports success or `nothing to clean up`, do not let Claude keep retrying cleanup. Treat the last complete return packet as found in the monitor `outputs` field (structured via `sessionStatus` JSON) and stop the host Claude process if it falls into the known shutdown-reminder loop.
 
 5. If `ccsm claude exec` cannot be invoked, or Claude execution cannot start cleanly, stop and report the workflow as blocked instead of continuing with local implementation.
 6. Review the execution return packet in Codex.

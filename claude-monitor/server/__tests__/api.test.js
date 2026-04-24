@@ -1177,6 +1177,355 @@ describe("Hook Event Processing", () => {
 });
 
 // ============================================================
+// Agent Teams Monitoring
+// ============================================================
+describe("Agent Teams Monitoring", () => {
+  it("should create a session for Agent Teams hook events with session_id and cwd", async () => {
+    const sessionId = `agent-teams-sess-${Date.now()}`;
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        cwd: "/home/user/projects/databeacon",
+        tool_name: "Agent",
+        tool_input: {
+          description: "DataBeacon Worker",
+          subagent_type: "general-purpose",
+          prompt: "Analyze the database schema",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+
+    // Verify session was created with the correct cwd
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.status, 200);
+    assert.equal(sessRes.body.session.status, "active");
+    assert.equal(sessRes.body.session.cwd, "/home/user/projects/databeacon");
+
+    // Verify the subagent was created
+    const subagent = sessRes.body.agents.find((a) => a.type === "subagent");
+    assert.ok(subagent, "Agent Teams subagent should exist");
+    assert.equal(subagent.status, "working");
+  });
+
+  it("should use project_cwd as fallback for session cwd and store in metadata", async () => {
+    const sessionId = `agent-teams-proj-${Date.now()}`;
+    const res = await post("/api/hooks/event", {
+      hook_type: "Notification",
+      data: {
+        session_id: sessionId,
+        project_cwd: "/home/user/projects/other-project",
+        message: "Agent Teams worker started",
+      },
+    });
+    assert.equal(res.status, 200);
+
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.status, 200);
+    assert.equal(sessRes.body.session.cwd, "/home/user/projects/other-project");
+
+    // Verify project_cwd is also stored in session metadata
+    const meta = JSON.parse(sessRes.body.session.metadata || "{}");
+    assert.equal(meta.project_cwd, "/home/user/projects/other-project");
+  });
+
+  it("should create TeamReturn event on SubagentStop with last_assistant_message", async () => {
+    const sessionId = `team-return-${Date.now()}`;
+
+    // Create session and spawn a subagent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Agent",
+        tool_input: {
+          description: "Return Worker",
+          subagent_type: "general-purpose",
+          prompt: "Do some work",
+        },
+      },
+    });
+
+    // SubagentStop with return output
+    const res = await post("/api/hooks/event", {
+      hook_type: "SubagentStop",
+      data: {
+        session_id: sessionId,
+        description: "Return Worker",
+        last_assistant_message: "Task completed: found 42 records in the database.",
+      },
+    });
+    assert.equal(res.status, 200);
+
+    // Verify the event was recorded
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.ok(teamReturnEvents.length >= 1, "Should have at least one TeamReturn event");
+    const teamReturn = teamReturnEvents[0];
+    assert.match(teamReturn.summary, /Teammate return/);
+    assert.match(teamReturn.summary, /Return Worker/);
+    assert.match(teamReturn.summary, /42 records/);
+
+    // Verify agent is completed
+    const agentsRes = await fetch(`/api/agents?session_id=${sessionId}`);
+    const subagent = agentsRes.body.agents.find((a) => a.type === "subagent");
+    assert.equal(subagent.status, "completed");
+    assert.ok(subagent.ended_at);
+  });
+
+  it("should detect Agent Teams mailbox patterns in Notification events", async () => {
+    const sessionId = `team-mailbox-${Date.now()}`;
+
+    // Create session
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Read",
+      },
+    });
+
+    // Notification with team-agent return pattern
+    const res = await post("/api/hooks/event", {
+      hook_type: "Notification",
+      data: {
+        session_id: sessionId,
+        message: "Teammate return packet: analysis complete with 3 findings.",
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn");
+    assert.match(res.body.event.summary, /Teammate return packet/);
+  });
+
+  it("should deduplicate identical return events within 30 seconds", async () => {
+    const sessionId = `team-dedup-${Date.now()}`;
+
+    // Create session and spawn subagent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Agent",
+        tool_input: {
+          description: "Dedup Worker",
+          subagent_type: "Explore",
+          prompt: "Search",
+        },
+      },
+    });
+
+    // First SubagentStop
+    const res1 = await post("/api/hooks/event", {
+      hook_type: "SubagentStop",
+      data: {
+        session_id: sessionId,
+        description: "Dedup Worker",
+        last_assistant_message: "Search complete: no issues found.",
+      },
+    });
+    assert.equal(res1.status, 200);
+
+    // Second identical SubagentStop (simulating duplicate hook delivery)
+    const res2 = await post("/api/hooks/event", {
+      hook_type: "SubagentStop",
+      data: {
+        session_id: sessionId,
+        description: "Dedup Worker",
+        last_assistant_message: "Search complete: no issues found.",
+      },
+    });
+    assert.equal(res2.status, 200);
+
+    // Should only have ONE TeamReturn event, not two
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(
+      teamReturnEvents.length,
+      1,
+      "Duplicate SubagentStop should not create duplicate TeamReturn events"
+    );
+  });
+
+  it("should make agent return visible immediately after SubagentStop (not waiting for session end)", async () => {
+    const sessionId = `team-immediate-${Date.now()}`;
+
+    // Create session and spawn subagent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Agent",
+        tool_input: {
+          description: "Immediate Worker",
+          subagent_type: "general-purpose",
+          prompt: "Do work and return immediately",
+        },
+      },
+    });
+
+    // SubagentStop with return output — the TeamReturn event should be
+    // visible right after this request, without needing a Stop or SessionEnd.
+    const res = await post("/api/hooks/event", {
+      hook_type: "SubagentStop",
+      data: {
+        session_id: sessionId,
+        description: "Immediate Worker",
+        last_assistant_message: "Returned: completed analysis.",
+      },
+    });
+    assert.equal(res.status, 200);
+
+    // Immediately query events — the TeamReturn should be present
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturns = eventsRes.body.events.filter(
+      (e) => e.event_type === "TeamReturn"
+    );
+    assert.ok(
+      teamReturns.length >= 1,
+      "TeamReturn event should be visible immediately after SubagentStop"
+    );
+    assert.match(teamReturns[0].summary, /Returned: completed analysis/);
+
+    // Session should still be active (no session-end event was sent)
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.body.session.status, "active");
+  });
+
+  it("should keep existing non-Agent Teams behavior working", async () => {
+    const sessionId = `normal-sess-${Date.now()}`;
+
+    // Standard PreToolUse
+    const res1 = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, tool_name: "Read" },
+    });
+    assert.equal(res1.status, 200);
+    assert.equal(res1.body.event.event_type, "PreToolUse");
+
+    // Standard Stop
+    const res2 = await post("/api/hooks/event", {
+      hook_type: "Stop",
+      data: { session_id: sessionId, stop_reason: "end_turn" },
+    });
+    assert.equal(res2.status, 200);
+    assert.equal(res2.body.event.event_type, "Stop");
+
+    // Session stays active
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.body.session.status, "active");
+
+    // Main agent is idle
+    const mainAgent = sessRes.body.agents.find((a) => a.type === "main");
+    assert.equal(mainAgent.status, "idle");
+  });
+});
+
+// ============================================================
+// Run ID Correlation
+// ============================================================
+describe("Run ID Correlation", () => {
+  it("should store run_id from hook data in session.run_id column", async () => {
+    const sessionId = `runid-sess-${Date.now()}`;
+    const runId = `run-${Date.now()}`;
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        run_id: runId,
+        tool_name: "Read",
+        cwd: "/test/project",
+      },
+    });
+    assert.equal(res.status, 200);
+
+    // Verify run_id was stored in the session's run_id column
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.status, 200);
+    assert.equal(sessRes.body.session.run_id, runId);
+  });
+
+  it("should update run_id on existing session when new run_id arrives", async () => {
+    const sessionId = `runid-update-${Date.now()}`;
+    const runId1 = `run-old-${Date.now()}`;
+    const runId2 = `run-new-${Date.now()}`;
+
+    // Create session with first run_id
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, run_id: runId1, tool_name: "Read" },
+    });
+
+    // Send another event with updated run_id
+    await post("/api/hooks/event", {
+      hook_type: "Stop",
+      data: { session_id: sessionId, run_id: runId2, stop_reason: "end_turn" },
+    });
+
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.body.session.run_id, runId2);
+  });
+
+  it("should look up session by run_id via ?run_id= query parameter", async () => {
+    const sessionId = `runid-lookup-${Date.now()}`;
+    const runId = `run-lookup-${Date.now()}`;
+
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, run_id: runId, tool_name: "Write" },
+    });
+
+    // Query by run_id instead of session id
+    const res = await fetch(`/api/sessions?run_id=${runId}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.sessions.length, 1);
+    assert.equal(res.body.sessions[0].id, sessionId);
+    assert.equal(res.body.sessions[0].run_id, runId);
+  });
+
+  it("should return empty sessions array for unknown run_id", async () => {
+    const res = await fetch("/api/sessions?run_id=nonexistent-run-id");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.sessions.length, 0);
+    assert.equal(res.body.run_id, "nonexistent-run-id");
+  });
+
+  it("should include run_id in session detail response", async () => {
+    const sessionId = `runid-detail-${Date.now()}`;
+    const runId = `run-detail-${Date.now()}`;
+
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, run_id: runId, tool_name: "Read" },
+    });
+
+    const res = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.session.run_id, runId);
+  });
+
+  it("should not overwrite run_id if same run_id arrives again", async () => {
+    const sessionId = `runid-same-${Date.now()}`;
+    const runId = `run-same-${Date.now()}`;
+
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, run_id: runId, tool_name: "Read" },
+    });
+
+    // Send another event with same run_id
+    await post("/api/hooks/event", {
+      hook_type: "Stop",
+      data: { session_id: sessionId, run_id: runId, stop_reason: "end_turn" },
+    });
+
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.body.session.run_id, runId);
+  });
+});
+
+// ============================================================
 // Database Integrity
 // ============================================================
 describe("Database Integrity", () => {

@@ -23,9 +23,11 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [hasNewOutput, setHasNewOutput] = useState(false);
+  const [isAtTop, setIsAtTop] = useState(true);
   const outputScrollRef = useRef<HTMLDivElement | null>(null);
   const previousLatestRef = useRef<string | null>(null);
+  const userHasExplicitlySelected = useRef(false);
 
   const loadSession = useCallback(async () => {
     if (!sessionId) {
@@ -106,7 +108,19 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
       ? `${latestFeed.agent_id}:${latestFeed.latest_output.id}`
       : null;
 
+    // Auto-select when user hasn't made an explicit selection
     setSelectedAgentId((current) => {
+      if (userHasExplicitlySelected.current) {
+        // Even if auto-select would pick a different agent, preserve user's choice
+        // as long as their chosen agent still exists
+        if (current && agentMap.has(current)) {
+          return current;
+        }
+        // If their agent disappeared, clear the flag and fall back to latest
+        userHasExplicitlySelected.current = false;
+        return latestAgentId;
+      }
+      // No explicit selection yet - use normal auto-select
       if (!current) return latestAgentId;
       if (!agentMap.has(current)) return latestAgentId;
       return current;
@@ -114,13 +128,17 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
 
     if (latestAgentId && latestSignature && previousLatestRef.current !== latestSignature) {
       previousLatestRef.current = latestSignature;
-      setSelectedAgentId(latestAgentId);
-      setRefreshKey((value) => value + 1);
-      if (typeof outputScrollRef.current?.scrollTo === "function") {
-        outputScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      if (isAtTop) {
+        // User is at top following live output, auto-scroll to top
+        if (typeof outputScrollRef.current?.scrollTo === "function") {
+          outputScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      } else {
+        // User scrolled away reading history, show indicator
+        setHasNewOutput(true);
       }
     }
-  }, [agentMap, orderedAgents, outputMap, outputs.latest_output_agent_id]);
+  }, [agentMap, orderedAgents, outputMap, outputs.latest_output_agent_id, isAtTop]);
 
   const selectedAgent = selectedAgentId ? agentMap.get(selectedAgentId) || null : null;
   const selectedOutput = selectedAgentId ? outputMap.get(selectedAgentId) || null : null;
@@ -145,7 +163,7 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
                   <button
                   key={agent.id}
                   type="button"
-                  onClick={() => setSelectedAgentId(agent.id)}
+                  onClick={() => { userHasExplicitlySelected.current = true; setSelectedAgentId(agent.id); }}
                   className={`rounded-xl border px-3 py-2 text-left transition-colors ${
                     isSelected
                       ? "border-accent/40 bg-accent/10 text-gray-100"
@@ -172,7 +190,21 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
           )}
         </div>
 
-        <div ref={outputScrollRef} className="max-h-[70vh] overflow-y-auto px-5 py-5">
+        <div
+          ref={outputScrollRef}
+          data-testid="output-scroll-container"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            const atTop = target.scrollTop <= 100;
+            if (atTop !== isAtTop) {
+              setIsAtTop(atTop);
+              if (atTop) {
+                setHasNewOutput(false);
+              }
+            }
+          }}
+          className="max-h-[70vh] overflow-y-auto px-5 py-5"
+        >
           {loading && (
             <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-sm text-gray-500">
               Loading live reader...
@@ -189,12 +221,28 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
           {!loading && !error && selectedAgent && selectedOutput?.latest_output && (
             <div className="space-y-6">
               <div
-                key={refreshKey}
-                className="animate-slide-up rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl"
+                className="rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Latest Output</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Latest Output</p>
+                      {hasNewOutput && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHasNewOutput(false);
+                            if (typeof outputScrollRef.current?.scrollTo === "function") {
+                              outputScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-medium text-accent hover:bg-accent/30 focus:outline-none focus:ring-1 focus:ring-accent/50"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
+                          New
+                        </button>
+                      )}
+                    </div>
                     <h4 className="mt-2 text-base font-semibold text-gray-100">{selectedAgent.name}</h4>
                     <p className="mt-1 text-xs text-gray-500">
                       {selectedOutput.latest_output.timestamp

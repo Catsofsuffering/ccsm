@@ -27,7 +27,11 @@ process.stdin.on("end", () => {
 
   const payload = JSON.stringify({
     hook_type: hookType,
-    data: parsedData,
+    data: {
+      ...parsedData,
+      run_id: process.env.CCSM_RUN_ID || undefined,
+      ccsm_workspace_root: process.env.CCSM_WORKSPACE_ROOT || undefined,
+    },
   });
 
   const req = http.request(

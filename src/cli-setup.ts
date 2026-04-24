@@ -6,7 +6,7 @@ import { version } from '../package.json'
 import { configMcp } from './commands/config-mcp'
 import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
-import { installMonitorHooks, installMonitorRuntime, startMonitor } from './commands/monitor'
+import { installMonitorHooks, installMonitorRuntime, restartMonitor, startMonitor } from './commands/monitor'
 import { showMainMenu } from './commands/menu'
 import { i18n, initI18n } from './i18n'
 import { readCcgConfig } from './utils/config'
@@ -161,8 +161,13 @@ export async function setupCommands(cli: CAC): Promise<void> {
         return
       }
 
+      if (action === 'restart') {
+        await restartMonitor()
+        return
+      }
+
       console.log(ansis.red(`Unknown monitor action: ${action}`))
-      console.log(ansis.gray('Available actions: start, install, hooks'))
+      console.log(ansis.gray('Available actions: start, install, hooks, restart'))
     })
 
   cli
@@ -171,6 +176,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--prompt-file <path>', 'Read prompt content from a file and pass it to claude -p')
     .option('--cwd <path>', 'Working directory for the Claude process')
     .option('--disable-agent-teams', 'Do not inject Agent Teams environment variables')
+    .option('--status-driven', 'Wait for monitor session terminal state before returning')
     .allowUnknownOptions()
     .action(async (
       action: string,
@@ -180,6 +186,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
         prompt?: string
         promptFile?: string
         disableAgentTeams?: boolean
+        statusDriven?: boolean
       },
     ) => {
       if (action === 'exec') {

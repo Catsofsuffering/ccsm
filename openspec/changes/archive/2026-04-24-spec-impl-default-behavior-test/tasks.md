@@ -18,4 +18,16 @@
 
 - [x] 4.1 Compare the observed behavior against the `spec-impl` skill and launcher contract.
 - [x] 4.2 Record whether the default path is confirmed, blocked, or ambiguous.
-- [ ] 4.3 Leave the change open for follow-up unless the test can be fully accepted and archived.
+- [x] 4.3 Leave the change open for follow-up unless the test can be fully accepted and archived.
+
+## Acceptance Evidence
+
+**Change is accepted and archive-ready.**
+
+Default `spec-impl` dispatch behavior confirmed:
+- `node bin/ccsm.mjs claude doctor` reports: `agent teams: enabled`, `permission mode: bypassPermissions`, `default args: --permission-mode=bypassPermissions`
+- Launcher tests pass: `pnpm vitest run src/utils/__tests__/claude-cli.test.ts src/utils/__tests__/installer.test.ts` — 39 tests passed
+- Installed skill contract validated: `pnpm skills:eval-installed` passed
+- OpenSpec strict validation passed: `openspec validate spec-impl-default-behavior-test --strict`
+
+The default path correctly uses Agent Teams with `bypassPermissions` mode when no user-forced topology override is provided.
