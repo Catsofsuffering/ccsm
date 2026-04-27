@@ -25,3 +25,33 @@
 - [x] 4.2 Run targeted monitor server tests and root tests for CLI/process helpers.
 - [x] 4.3 Run `pnpm build` after TypeScript changes.
 - [x] 4.4 If monitor client code changes, run the monitor client test/build commands.
+
+## 5. Reopened Rework: Structured Agent Teams Output
+
+- [x] 5.1 Add representative test fixtures for structured Agent Teams hook payloads:
+  - `PreToolUse` / `PostToolUse` with `tool_name: "SendMessage"`.
+  - mailbox or teammate-message payloads containing `summary` and `message`.
+  - nested payload variants where message text is inside `tool_input`, `tool_response`, `payload`, `content`, or `data`.
+- [x] 5.2 Add a tolerant server-side normalizer for Agent Teams tool payloads:
+  - recognize `TeamCreate`, `TaskCreate`, `TaskUpdate`, `SendMessage`, and mailbox/teammate-message shapes.
+  - extract message text, summary, team/task metadata, sender/recipient, and raw source.
+  - ignore lifecycle-only team events that do not contain teammate output.
+- [x] 5.3 Persist structured teammate output as first-class monitor events:
+  - use `TeamReturn` or an equivalent existing event type unless a stronger reason exists.
+  - associate with the best-known agent by explicit id, teammate name, subagent type, task/team metadata, or session-level fallback.
+  - keep raw payload details in `events.data`.
+  - dedupe against existing `SubagentStop`, notification-derived, and transcript-derived returns.
+- [x] 5.4 Include structured TeamReturn/mailbox event text in session output aggregation:
+  - `/api/sessions/:id/outputs` exposes the structured message before `SubagentStop` or `SessionEnd`.
+  - Workflow Live Reader can show the message without client-side special cases.
+  - existing transcript and `last_assistant_message` fallbacks remain intact.
+- [x] 5.5 Add WebSocket/API tests:
+  - structured `SendMessage` persists and broadcasts immediately.
+  - structured mailbox output appears in `/api/sessions/:id/outputs`.
+  - no duplicate output appears when the same text later arrives through `SubagentStop` or notification fallback.
+  - non-Agent Teams hook events still behave as before.
+- [x] 5.6 Run required verification:
+  - targeted monitor server test command for the hook/session-output path.
+  - broader monitor server API tests if available.
+  - `openspec validate fix-agent-teams-monitoring`.
+  - client tests/build only if client files changed.

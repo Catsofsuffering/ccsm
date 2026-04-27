@@ -21,6 +21,22 @@ The monitoring system SHALL persist and broadcast team-agent return or mailbox-s
 - **THEN** the monitor SHALL store an event associated with the correct session and best-known agent
 - **AND** the monitor SHALL broadcast the update over the existing WebSocket channel without waiting for session completion
 
+#### Scenario: Structured Agent Teams tool output is observed
+- **WHEN** a Claude hook event contains structured `TeamCreate`, `TaskCreate`, `TaskUpdate`, `SendMessage`, or teammate mailbox payload data
+- **THEN** the monitor SHALL parse the structured payload instead of relying only on notification text matching
+- **AND** any teammate `summary` or `message` content SHALL be persisted as realtime output for the session
+- **AND** the Workflow Live Reader output endpoint SHALL expose that content before `SubagentStop` or `SessionEnd`
+
+#### Scenario: Structured Agent Teams lifecycle event has no teammate output
+- **WHEN** a Claude hook event contains `TeamCreate`, `TaskCreate`, or `TaskUpdate` payload data without teammate message text
+- **THEN** the monitor MAY record normal lifecycle activity
+- **BUT** it SHALL NOT create a fake teammate return output
+
+#### Scenario: Structured teammate output is later observed through a fallback source
+- **WHEN** the same teammate message is first observed through structured `SendMessage` or mailbox payload data
+- **AND** the same text later appears through `SubagentStop`, `Notification`, or transcript-derived output
+- **THEN** the monitor SHALL avoid duplicate visible output entries for the same session and best-known agent
+
 #### Scenario: Subagent completes with final output
 - **WHEN** a `SubagentStop` or transcript-derived event includes final teammate output
 - **THEN** the monitor SHALL update the relevant agent status and output summary

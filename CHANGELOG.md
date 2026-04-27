@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.30] - 2026-04-27
+
+### Changed
+
+- Reworked Agent Teams monitoring so structured `SendMessage`, mailbox, `TeamCreate`, `TaskCreate`, and `TaskUpdate` payloads can produce realtime `TeamReturn` output before `SubagentStop` or session completion.
+- Added session output aggregation for persisted `TeamReturn` events so Workflow Live Reader can consume teammate output through the existing `/api/sessions/:id/outputs` contract.
+- Tightened teammate output deduplication across structured tool payloads, `SubagentStop`, notification-derived, and transcript-derived fallback signals.
+
+---
+
 ## [2.1.29] - 2026-04-24
 
 ### Changed

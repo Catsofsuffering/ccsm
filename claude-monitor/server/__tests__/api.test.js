@@ -1420,6 +1420,423 @@ describe("Agent Teams Monitoring", () => {
     const mainAgent = sessRes.body.agents.find((a) => a.type === "main");
     assert.equal(mainAgent.status, "idle");
   });
+
+  // ============================================================
+  // Tasks 5.1 & 5.5: Structured SendMessage / mailbox payloads
+  // ============================================================
+
+  it("should persist and broadcast a TeamReturn event from PreToolUse SendMessage (task 5.1/5.5)", async () => {
+    const sessionId = `sendmsg-pretask-${Date.now()}`;
+
+    // PreToolUse with a structured SendMessage payload
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "orchestrator",
+          message: "Analysis complete: found 3 critical issues in the auth module.",
+          summary: "Auth audit complete",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+
+    // The event returned should be a TeamReturn (not a generic PreToolUse)
+    assert.equal(res.body.event.event_type, "TeamReturn", "SendMessage should produce TeamReturn event");
+    assert.ok(res.body.event.summary.includes("Analysis complete") || res.body.event.summary.includes("Auth audit"), "Summary should include message text");
+
+    // Verify the event was persisted
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.ok(teamReturnEvents.length >= 1, "TeamReturn event should be persisted");
+  });
+
+  it("should persist and broadcast a TeamReturn event from PostToolUse SendMessage with tool_response (task 5.1/5.5)", async () => {
+    const sessionId = `sendmsg-posttask-${Date.now()}`;
+
+    // PostToolUse with SendMessage result
+    const res = await post("/api/hooks/event", {
+      hook_type: "PostToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "team-lead",
+          message: "Task done: generated 12 test cases.",
+          summary: "Tests ready",
+        },
+        tool_response: {
+          delivered: true,
+          payload: {
+            message: "Task done: generated 12 test cases.",
+            summary: "Tests ready",
+          },
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn", "PostToolUse SendMessage should produce TeamReturn");
+  });
+
+  it("should extract message text from nested payload shapes (task 5.1)", async () => {
+    const sessionId = `sendmsg-nested-${Date.now()}`;
+
+    // Nested: message inside tool_input.payload.data
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          payload: {
+            data: {
+              message: "Mailbox report: 5 files analyzed, 1 suggestion generated.",
+              summary: "File analysis complete",
+            },
+          },
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn");
+    assert.ok(
+      res.body.event.summary.includes("5 files analyzed"),
+      "Nested payload message should be extracted"
+    );
+
+    // Verify persisted event also has the nested message
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturn = eventsRes.body.events.find((e) => e.event_type === "TeamReturn");
+    const eventData = JSON.parse(teamReturn.data);
+    assert.ok(
+      eventData.messageText && eventData.messageText.includes("5 files analyzed"),
+      "Persisted event data should contain extracted messageText"
+    );
+  });
+
+  it("should extract structured output from Agent Teams lifecycle tool payloads when text is present (task 5.2)", async () => {
+    const sessionId = `team-tool-output-${Date.now()}`;
+
+    const res = await post("/api/hooks/event", {
+      hook_type: "PostToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "TaskUpdate",
+        tool_input: {
+          team_name: "monitoring-team",
+          task_id: "task-42",
+          sender: "api-test-worker",
+          summary: "Worker status",
+          message: "Worker report: structured TaskUpdate output is ready.",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn");
+
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturn = eventsRes.body.events.find((e) => e.event_type === "TeamReturn");
+    assert.ok(teamReturn, "TaskUpdate with message text should create a TeamReturn");
+    const eventData = JSON.parse(teamReturn.data);
+    assert.equal(eventData.teamName, "monitoring-team");
+    assert.equal(eventData.taskId, "task-42");
+    assert.ok(eventData.messageText.includes("TaskUpdate output is ready"));
+  });
+
+  it("should extract message text from teammate-message shape (task 5.1)", async () => {
+    const sessionId = `sendmsg-teammate-msg-${Date.now()}`;
+
+    // teammate_message.message shape
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "RelayMessage",
+        teammate_message: {
+          message: "Subagent result: refactoring complete, 8 files modified.",
+          summary: "Refactoring done",
+          sender: "refactor-agent",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn");
+    assert.ok(
+      res.body.event.summary.includes("refactoring complete"),
+      "teammate_message.message should be extracted"
+    );
+  });
+
+  it("should extract message from mailbox.message shape (task 5.1)", async () => {
+    const sessionId = `sendmsg-mailbox-${Date.now()}`;
+
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Mailbox",
+        mailbox: {
+          message: "Worker done: processed 150 records in 3s.",
+          summary: "Batch processing complete",
+          sender: "data-worker",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "TeamReturn");
+    assert.ok(res.body.event.summary.includes("150 records"), "mailbox.message should be extracted");
+  });
+
+  it("should include TeamReturn events in /api/sessions/:id/outputs (task 5.4)", async () => {
+    const sessionId = `sendmsg-outputs-${Date.now()}`;
+
+    // First, a regular PreToolUse to create the session and main agent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, tool_name: "Read" },
+    });
+
+    // Now a SendMessage that should appear in outputs
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "orchestrator",
+          message: "Search complete: identified 7 files needing updates.",
+          summary: "Search complete",
+        },
+      },
+    });
+
+    // Fetch session outputs
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.status, 200);
+    assert.ok(sessRes.body.outputs, "Session should have outputs");
+
+    // Find the main agent's outputs
+    const mainAgent = sessRes.body.outputs.agents.find((a) => a.type === "main");
+    assert.ok(mainAgent, "Main agent should appear in outputs");
+    assert.ok(mainAgent.output_count >= 1, "Main agent should have outputs");
+
+    // Check that one of the outputs has source === "team_return" (from the SendMessage)
+    const teamReturnOutput = mainAgent.outputs.find((o) => o.source === "team_return");
+    assert.ok(teamReturnOutput, "TeamReturn output should appear in agent outputs");
+    assert.ok(teamReturnOutput.markdown.includes("Search complete") || teamReturnOutput.markdown.includes("7 files"), "TeamReturn output should contain the SendMessage text");
+  });
+
+  it("should not duplicate TeamReturn when same SendMessage arrives via both PreToolUse and PostToolUse (task 5.5)", async () => {
+    const sessionId = `sendmsg-dedup-${Date.now()}`;
+
+    // PreToolUse first
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "team-lead",
+          message: "Dedup test: same message should not duplicate.",
+          summary: "Dedup test",
+        },
+      },
+    });
+
+    // PostToolUse with the same message
+    await post("/api/hooks/event", {
+      hook_type: "PostToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "team-lead",
+          message: "Dedup test: same message should not duplicate.",
+          summary: "Dedup test",
+        },
+        tool_response: { delivered: true },
+      },
+    });
+
+    // Check events - should only have ONE TeamReturn, not two
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(teamReturnEvents.length, 1, "Duplicate SendMessage should not create duplicate TeamReturn events");
+  });
+
+  it("should not duplicate TeamReturn when SendMessage and SubagentStop carry the same output (task 5.5)", async () => {
+    const sessionId = `sendmsg-subagent-dedup-${Date.now()}`;
+
+    // Create a subagent first
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Agent",
+        tool_input: {
+          description: "Dedup Subagent",
+          subagent_type: "general-purpose",
+          prompt: "Do work and return",
+        },
+      },
+    });
+
+    // Structured SendMessage from the subagent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          sender: "Dedup Subagent",
+          message: "Same output: same text should not duplicate.",
+          summary: "Same output",
+        },
+      },
+    });
+
+    // SubagentStop with the same last_assistant_message
+    await post("/api/hooks/event", {
+      hook_type: "SubagentStop",
+      data: {
+        session_id: sessionId,
+        description: "Dedup Subagent",
+        last_assistant_message: "Same output: same text should not duplicate.",
+      },
+    });
+
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(
+      teamReturnEvents.length,
+      1,
+      "Structured SendMessage and SubagentStop with the same output should create one visible TeamReturn"
+    );
+  });
+
+  it("should ignore lifecycle-only SendMessage payloads (no message content) (task 5.2)", async () => {
+    const sessionId = `sendmsg-lifecycle-${Date.now()}`;
+
+    // SendMessage with only metadata but no actual message content
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          recipient: "orchestrator",
+          // No message, no summary — just metadata
+          task_id: "task-123",
+          team_name: "my-team",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    // Should NOT produce a TeamReturn — lifecycle-only events are skipped
+    assert.equal(res.body.event.event_type, "PreToolUse", "Lifecycle-only SendMessage should not produce TeamReturn");
+
+    // Verify no TeamReturn was persisted
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(teamReturnEvents.length, 0, "Lifecycle-only SendMessage should not persist a TeamReturn event");
+  });
+
+  it("should ignore lifecycle-only Agent Teams tool payloads without message content (task 5.2)", async () => {
+    const sessionId = `team-tool-lifecycle-${Date.now()}`;
+
+    const res = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "TeamCreate",
+        tool_input: {
+          team_name: "monitoring-team",
+          task_id: "task-setup",
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.event.event_type, "PreToolUse");
+
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(teamReturnEvents.length, 0, "Lifecycle-only TeamCreate should not persist a TeamReturn event");
+  });
+
+  it("should associate SendMessage with working subagent by sender name (task 5.3)", async () => {
+    const sessionId = `sendmsg-assoc-${Date.now()}`;
+
+    // Create a working subagent
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "Agent",
+        tool_input: {
+          description: "Research Worker",
+          subagent_type: "Explore",
+          prompt: "Research the codebase",
+        },
+      },
+    });
+
+    // SendMessage with sender matching the subagent name
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: sessionId,
+        tool_name: "SendMessage",
+        tool_input: {
+          sender: "Research Worker",
+          message: "Research complete: found 15 relevant files.",
+          summary: "Research done",
+        },
+      },
+    });
+
+    // Verify the TeamReturn was associated with the subagent, not main
+    const eventsRes = await fetch(`/api/events?session_id=${sessionId}`);
+    const teamReturnEvents = eventsRes.body.events.filter((e) => e.event_type === "TeamReturn");
+    assert.equal(teamReturnEvents.length, 1, "SendMessage should not also create a duplicate main-agent TeamReturn");
+    const agentsRes = await fetch(`/api/agents?session_id=${sessionId}`);
+    const subagent = agentsRes.body.agents.find((a) => a.type === "subagent" && a.status === "working");
+    assert.ok(subagent, "Subagent should exist");
+    assert.equal(
+      teamReturnEvents[0].agent_id,
+      subagent.id,
+      "TeamReturn should be associated with the subagent by sender name"
+    );
+  });
+
+  it("should keep non-Agent Teams hooks working after structured payload changes (task 5.5)", async () => {
+    const sessionId = `normal-after-struct-${Date.now()}`;
+
+    // Regular non-SendMessage tool
+    const res1 = await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: { session_id: sessionId, tool_name: "Bash", tool_input: { command: "ls" } },
+    });
+    assert.equal(res1.status, 200);
+    assert.equal(res1.body.event.event_type, "PreToolUse");
+
+    // Stop
+    const res2 = await post("/api/hooks/event", {
+      hook_type: "Stop",
+      data: { session_id: sessionId, stop_reason: "end_turn" },
+    });
+    assert.equal(res2.status, 200);
+    assert.equal(res2.body.event.event_type, "Stop");
+
+    // Session stays active
+    const sessRes = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(sessRes.body.session.status, "active");
+
+    // Agent is idle
+    const mainAgent = sessRes.body.agents.find((a) => a.type === "main");
+    assert.equal(mainAgent.status, "idle");
+  });
 });
 
 // ============================================================

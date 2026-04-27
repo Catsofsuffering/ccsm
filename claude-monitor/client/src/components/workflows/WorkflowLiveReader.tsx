@@ -20,7 +20,7 @@ function toTime(value: string | null | undefined): number {
 export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [outputs, setOutputs] = useState<SessionOutputs>({ agents: [], latest_output_agent_id: null });
-  const [loading, setLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(() => Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [hasNewOutput, setHasNewOutput] = useState(false);
@@ -28,37 +28,68 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
   const outputScrollRef = useRef<HTMLDivElement | null>(null);
   const previousLatestRef = useRef<string | null>(null);
   const userHasExplicitlySelected = useRef(false);
+  const requestIdRef = useRef(0);
+  const hasContentRef = useRef(false);
 
-  const loadSession = useCallback(async () => {
+  useEffect(() => {
+    hasContentRef.current = agents.length > 0 || outputs.agents.length > 0;
+  }, [agents.length, outputs.agents.length]);
+
+  const resetReaderForSession = useCallback(() => {
+    setAgents([]);
+    setOutputs({ agents: [], latest_output_agent_id: null });
+    setSelectedAgentId(null);
+    setHasNewOutput(false);
+    previousLatestRef.current = null;
+    userHasExplicitlySelected.current = false;
+    hasContentRef.current = false;
+  }, []);
+
+  const loadSession = useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
+    const requestId = ++requestIdRef.current;
+
     if (!sessionId) {
-      setAgents([]);
-      setOutputs({ agents: [], latest_output_agent_id: null });
-      setSelectedAgentId(null);
+      resetReaderForSession();
+      setError(null);
+      setIsInitialLoading(false);
       return;
     }
 
+    if (reset) {
+      resetReaderForSession();
+    }
+
+    const shouldShowInitialLoading = reset || !hasContentRef.current;
+    if (shouldShowInitialLoading) {
+      setIsInitialLoading(true);
+    }
+
     try {
-      setLoading(true);
       const result = await api.sessions.get(sessionId);
+      if (requestIdRef.current !== requestId) return;
       setAgents(result.agents);
       setOutputs(result.outputs);
       setError(null);
     } catch (err) {
+      if (requestIdRef.current !== requestId) return;
       setError(err instanceof Error ? err.message : "Failed to load session outputs");
-      setAgents([]);
-      setOutputs({ agents: [], latest_output_agent_id: null });
+      if (shouldShowInitialLoading) {
+        setAgents([]);
+        setOutputs({ agents: [], latest_output_agent_id: null });
+      }
     } finally {
-      setLoading(false);
+      if (requestIdRef.current !== requestId) return;
+      setIsInitialLoading(false);
     }
-  }, [sessionId]);
+  }, [resetReaderForSession, sessionId]);
 
   useEffect(() => {
-    loadSession();
+    loadSession({ reset: true });
   }, [loadSession]);
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
-    return eventBus.subscribe((msg: WSMessage) => {
+    const unsubscribe = eventBus.subscribe((msg: WSMessage) => {
       if (
         msg.type === "session_created" ||
         msg.type === "session_updated" ||
@@ -66,14 +97,18 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
         msg.type === "agent_updated"
       ) {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(loadSession, 800);
+        debounceTimer = setTimeout(() => loadSession(), 800);
       }
 
       if (msg.type === "new_event" && sessionId && "session_id" in msg.data && msg.data.session_id === sessionId) {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(loadSession, 800);
+        debounceTimer = setTimeout(() => loadSession(), 800);
       }
     });
+    return () => {
+      clearTimeout(debounceTimer);
+      unsubscribe();
+    };
   }, [loadSession, sessionId]);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
@@ -205,20 +240,20 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
           }}
           className="max-h-[70vh] overflow-y-auto px-5 py-5"
         >
-          {loading && (
+          {isInitialLoading && (
             <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-sm text-gray-500">
               Loading live reader...
             </div>
           )}
 
-          {!loading && error && (
+          {!isInitialLoading && error && (
             <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center">
               <p className="text-sm font-medium text-gray-300">Live reader is unavailable</p>
               <p className="mt-2 text-sm text-gray-500">{error}</p>
             </div>
           )}
 
-          {!loading && !error && selectedAgent && selectedOutput?.latest_output && (
+          {!isInitialLoading && !error && selectedAgent && selectedOutput?.latest_output && (
             <div className="space-y-6">
               <div
                 className="rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl"
@@ -299,7 +334,7 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
             </div>
           )}
 
-          {!loading && !error && selectedAgent && !selectedOutput?.latest_output && (
+          {!isInitialLoading && !error && selectedAgent && !selectedOutput?.latest_output && (
             <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center">
               <p className="text-sm font-medium text-gray-300">{selectedAgent.name}</p>
               <p className="mt-2 text-sm text-gray-500">
@@ -308,7 +343,7 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
             </div>
           )}
 
-          {!loading && !error && !selectedAgent && (
+          {!isInitialLoading && !error && !selectedAgent && (
             <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center">
               <p className="text-sm text-gray-500">Select a session and an agent to inspect output.</p>
             </div>

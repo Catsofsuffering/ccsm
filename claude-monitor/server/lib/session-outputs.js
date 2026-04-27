@@ -24,7 +24,7 @@ function dedupeMessages(messages) {
   const seen = new Set();
   const deduped = [];
   for (const message of messages) {
-    const key = `${message.timestamp || ""}:${message.markdown}`;
+    const key = (message.markdown || "").replace(/\s+/g, " ").trim();
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(message);
@@ -43,6 +43,35 @@ function buildFallbackMessage(agentId, event) {
     markdown: data.last_assistant_message,
     source: "hook",
   };
+}
+
+/**
+ * Build output messages from TeamReturn events persisted by the Agent Teams
+ * normalizer. These carry structured teammate message text in events.data.
+ * Returns an array of output-like message objects.
+ */
+function buildTeamReturnMessages(agentId, eventsForAgent) {
+  const teamReturnEvents = eventsForAgent.filter((e) => e.event_type === "TeamReturn");
+  return teamReturnEvents.map((event) => {
+    const data = event._parsed || {};
+    // Prefer the explicit messageText field from the normalizer,
+    // fall back to the summary (which contains truncated message text).
+    const messageText =
+      data.messageText ||
+      data.output ||
+      data.message ||
+      (data.raw && typeof data.raw === "object" ? data.raw.messageText : null);
+    const markdown = messageText || event.summary || "";
+    return {
+      id: `teamreturn-${event.id}`,
+      agent_id: agentId,
+      timestamp: event.created_at,
+      markdown,
+      source: "team_return",
+      event_id: event.id,
+      tool_name: event.tool_name || null,
+    };
+  });
 }
 
 function buildTranscriptMessages(agentId, transcriptPath) {
@@ -67,6 +96,12 @@ function buildAgentOutput(agent, eventsForAgent, mainTranscriptPath) {
           ?.agent_transcript_path || null;
 
   let messages = buildTranscriptMessages(agent.id, transcriptPath);
+
+  // Also include TeamReturn events as outputs — these carry structured teammate
+  // message text from SendMessage/mailbox payloads that may not appear in transcripts.
+  const teamReturnMessages = buildTeamReturnMessages(agent.id, eventsForAgent);
+  messages = messages.concat(teamReturnMessages);
+
   if (messages.length === 0) {
     const fallback = buildFallbackMessage(
       agent.id,
@@ -80,6 +115,8 @@ function buildAgentOutput(agent, eventsForAgent, mainTranscriptPath) {
 
   return {
     agent_id: agent.id,
+    type: agent.type,
+    name: agent.name,
     transcript_path: transcriptPath,
     latest_output: latest,
     latest_timestamp: latest?.timestamp || null,

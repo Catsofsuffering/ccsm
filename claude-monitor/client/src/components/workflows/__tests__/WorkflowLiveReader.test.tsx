@@ -1,7 +1,63 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 import { WorkflowLiveReader } from "../WorkflowLiveReader";
-import type { Agent, AgentOutputFeed, SessionOutputs } from "../../../lib/types";
+import { api } from "../../../lib/api";
+import { eventBus } from "../../../lib/eventBus";
+import type {
+  Agent,
+  AgentOutputFeed,
+  DashboardEvent,
+  Session,
+  SessionOutputs,
+  WSMessage,
+} from "../../../lib/types";
+
+type SessionGetResult = {
+  session: Session;
+  agents: Agent[];
+  events: DashboardEvent[];
+  outputs: SessionOutputs;
+};
+
+function makeSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "sess-1",
+    name: "Test Session",
+    status: "active",
+    cwd: "B:/project/ccs",
+    model: "claude-sonnet",
+    started_at: "2026-03-05T10:00:00.000Z",
+    ended_at: null,
+    metadata: null,
+    ...overrides,
+  };
+}
+
+function makeSessionResult(overrides: Partial<SessionGetResult> = {}): SessionGetResult {
+  return {
+    session: makeSession(),
+    agents: mockAgents,
+    events: [],
+    outputs: mockOutputsData,
+    ...overrides,
+  };
+}
+
+function makeAgentMessage(agentId: string, sessionId: string): WSMessage {
+  return {
+    type: "agent_updated",
+    data: makeAgent({ id: agentId, session_id: sessionId }),
+    timestamp: "2026-03-05T10:00:00.000Z",
+  };
+}
+
+function makeSessionMessage(sessionId: string): WSMessage {
+  return {
+    type: "session_updated",
+    data: makeSession({ id: sessionId }),
+    timestamp: "2026-03-05T10:00:00.000Z",
+  };
+}
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -43,30 +99,41 @@ function makeOutputFeed(agentId: string, overrides: Partial<AgentOutputFeed> = {
 let mockAgents: Agent[] = [];
 let mockOutputsData: SessionOutputs = { agents: [], latest_output_agent_id: null };
 
-vi.mock("../../../lib/api", () => ({
-  api: {
-    sessions: {
-      get: vi.fn(() =>
-        Promise.resolve({
-          session: { id: "sess-1", name: "Test Session", status: "active" },
-          agents: mockAgents,
-          outputs: mockOutputsData,
-        })
-      ),
+vi.mock("../../../lib/api", () => {
+  const sessionsGetMock = vi.fn(() =>
+    Promise.resolve(makeSessionResult())
+  );
+  return {
+    api: {
+      sessions: {
+        get: sessionsGetMock,
+      },
     },
-  },
-}));
+  };
+});
 
-vi.mock("../../../lib/eventBus", () => ({
-  eventBus: {
-    subscribe: vi.fn(() => () => {}),
-  },
-}));
+vi.mock("../../../lib/eventBus", () => {
+  const subscribeMock = vi.fn(() => () => {});
+  return {
+    eventBus: {
+      subscribe: subscribeMock,
+    },
+  };
+});
 
 describe("WorkflowLiveReader", () => {
   beforeEach(() => {
     mockAgents = [];
     mockOutputsData = { agents: [], latest_output_agent_id: null };
+    vi.mocked(api.sessions.get).mockImplementation(() =>
+      Promise.resolve(makeSessionResult())
+    );
+    vi.mocked(eventBus.subscribe).mockImplementation(() => () => {});
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
   });
 
   describe("agent selection preservation", () => {
@@ -362,6 +429,194 @@ describe("WorkflowLiveReader", () => {
       const latestOutputCard = container.querySelector('[class*="border-accent/20"]');
       expect(latestOutputCard).toBeTruthy();
       expect(latestOutputCard!.className).not.toContain("animate-slide-up");
+    });
+  });
+
+  describe("background refresh behavior", () => {
+    beforeEach(() => {
+      mockAgents = [];
+      mockOutputsData = { agents: [], latest_output_agent_id: null };
+    });
+
+    it("does not show 'Loading live reader...' during event-driven refresh when prior output is displayed", async () => {
+      mockAgents = [
+        makeAgent({ id: "ag-r1", name: "BgRefreshAgent1", type: "main" }),
+        makeAgent({ id: "ag-r2", name: "BgRefreshAgent2", type: "subagent" }),
+      ];
+      mockOutputsData = {
+        latest_output_agent_id: "ag-r1",
+        agents: [makeOutputFeed("ag-r1"), makeOutputFeed("ag-r2")],
+      };
+
+      render(<WorkflowLiveReader sessionId="sess-bg1" />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      // Verify initial content: no loading placeholder
+      expect(screen.queryByText("Loading live reader...")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /BgRefreshAgent1/i })).toHaveLength(1);
+
+      // Capture subscribe callback
+      const subscribeCalls = vi.mocked(eventBus.subscribe).mock.calls;
+      const subscribeCallback = subscribeCalls[subscribeCalls.length - 1]?.[0] as (msg: WSMessage) => void;
+      expect(subscribeCallback).toBeDefined();
+
+      // Mutate mock data so refresh returns different (newer) data
+      mockAgents = [
+        ...mockAgents,
+        makeAgent({ id: "ag-r3", name: "BgRefreshAgent3", type: "subagent" }),
+      ];
+      mockOutputsData = {
+        latest_output_agent_id: "ag-r3",
+        agents: [...mockOutputsData.agents, makeOutputFeed("ag-r3")],
+      };
+
+      // Simulate WebSocket event triggering background refresh
+      act(() => {
+        subscribeCallback(makeAgentMessage("ag-r1", "sess-bg1"));
+      });
+      // Wait past the 800ms debounce
+      await act(async () => { await new Promise((r) => setTimeout(r, 1000)); });
+
+      // Loading placeholder must NOT appear during background refresh
+      expect(screen.queryByText("Loading live reader...")).not.toBeInTheDocument();
+      // Original content still visible
+      expect(screen.getAllByRole("button", { name: /BgRefreshAgent1/i })).toHaveLength(1);
+    });
+
+    it("latest output DOM remains visible during delayed refresh resolution", async () => {
+      mockAgents = [makeAgent({ id: "ag-l1", name: "BgRefreshAgent1", type: "main" })];
+      mockOutputsData = {
+        latest_output_agent_id: "ag-l1",
+        agents: [makeOutputFeed("ag-l1")],
+      };
+
+      const { container } = render(<WorkflowLiveReader sessionId="sess-bg2" />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      // Capture the latest output card before refresh
+      const getLatestCard = () => container.querySelector('[class*="border-accent/20"]');
+      const cardBefore = getLatestCard();
+      expect(cardBefore).toBeTruthy();
+
+      let resolveRefresh: ((value: SessionGetResult) => void) | null = null;
+      vi.mocked(api.sessions.get).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          })
+      );
+
+      const subscribeCalls = vi.mocked(eventBus.subscribe).mock.calls;
+      const subscribeCallback = subscribeCalls[subscribeCalls.length - 1]?.[0] as (msg: WSMessage) => void;
+
+      act(() => {
+        subscribeCallback(makeAgentMessage("ag-l1", "sess-bg2"));
+      });
+      await act(async () => { await new Promise((r) => setTimeout(r, 1000)); });
+
+      const cardDuringRefresh = getLatestCard();
+      expect(screen.queryByText("Loading live reader...")).not.toBeInTheDocument();
+      expect(cardDuringRefresh).toBeTruthy();
+      expect(cardDuringRefresh).toBe(cardBefore);
+
+      await act(async () => {
+        resolveRefresh?.(makeSessionResult({
+          session: makeSession({ id: "sess-bg2" }),
+          agents: [
+            makeAgent({ id: "ag-l1", name: "BgRefreshAgent1", type: "main" }),
+            makeAgent({ id: "ag-l2", name: "BgRefreshAgent2", type: "subagent" }),
+          ],
+          outputs: {
+            latest_output_agent_id: "ag-l2",
+            agents: [makeOutputFeed("ag-l1"), makeOutputFeed("ag-l2")],
+          },
+        }));
+      });
+    });
+
+    it("stale refresh responses do not overwrite newer session selection", async () => {
+      mockAgents = [makeAgent({ id: "ag-s1", name: "StaleAgent1", type: "main" })];
+      mockOutputsData = {
+        latest_output_agent_id: "ag-s1",
+        agents: [makeOutputFeed("ag-s1")],
+      };
+
+      const { rerender } = render(<WorkflowLiveReader sessionId="sess-bg3" />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      expect(screen.getAllByRole("button", { name: /StaleAgent1/i })).toHaveLength(1);
+
+      let resolveStaleRefresh: ((value: SessionGetResult) => void) | null = null;
+      vi.mocked(api.sessions.get).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStaleRefresh = resolve;
+          })
+      );
+
+      const subscribeCalls = vi.mocked(eventBus.subscribe).mock.calls;
+      const subscribeCallback = subscribeCalls[subscribeCalls.length - 1]?.[0] as (msg: WSMessage) => void;
+
+      act(() => {
+        subscribeCallback(makeSessionMessage("sess-bg3"));
+      });
+      await act(async () => { await new Promise((r) => setTimeout(r, 1000)); });
+
+      vi.mocked(api.sessions.get).mockImplementationOnce(() =>
+        Promise.resolve(makeSessionResult({
+          session: makeSession({ id: "sess-bg-new", name: "New Session" }),
+          agents: [makeAgent({ id: "agent-new", name: "AgentNew", type: "main" })],
+          outputs: {
+            latest_output_agent_id: "agent-new",
+            agents: [makeOutputFeed("agent-new")],
+          },
+        }))
+      );
+
+      rerender(<WorkflowLiveReader sessionId="sess-bg-new" />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      await act(async () => {
+        resolveStaleRefresh?.(makeSessionResult({
+          session: makeSession({ id: "sess-bg3", name: "Old Session" }),
+          agents: [makeAgent({ id: "agent-old", name: "AgentOld", type: "main" })],
+          outputs: {
+            latest_output_agent_id: "agent-old",
+            agents: [makeOutputFeed("agent-old")],
+          },
+        }));
+      });
+
+      expect(screen.getAllByRole("button", { name: /AgentNew/i })).toHaveLength(1);
+      expect(screen.queryByText("AgentOld")).not.toBeInTheDocument();
+    });
+
+    it("pending debounce timer is cleaned up on session change", async () => {
+      const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+      mockAgents = [makeAgent({ id: "ag-c1", name: "CleanupAgent1", type: "main" })];
+      mockOutputsData = {
+        latest_output_agent_id: "ag-c1",
+        agents: [makeOutputFeed("ag-c1")],
+      };
+
+      const { rerender } = render(<WorkflowLiveReader sessionId="sess-bg4" />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      const subscribeCalls = vi.mocked(eventBus.subscribe).mock.calls;
+      const subscribeCallback = subscribeCalls[subscribeCalls.length - 1]?.[0] as (msg: WSMessage) => void;
+
+      // Set a debounce timer via the event callback
+      act(() => {
+        subscribeCallback(makeAgentMessage("ag-c1", "sess-bg4"));
+      });
+
+      // Changing session should trigger cleanup which calls clearTimeout
+      clearTimeoutSpy.mockClear();
+      rerender(<WorkflowLiveReader sessionId="sess-bg5" />);
+
+      // clearTimeout must have been called to cancel the pending debounce
+      expect(clearTimeoutSpy).toHaveBeenCalled();
     });
   });
 });

@@ -24,3 +24,12 @@
 - [x] 4.3 Run the narrow client test command for the affected Workflow/LiveReader components.
 - [x] 4.4 Run `npm --prefix claude-monitor/client run build` after UI changes.
 - [ ] 4.5 Manually verify, if possible, that live Agent output updates no longer flash the reader panel.
+
+## 5. Reopened Rework: Background Refresh Still Flashes
+
+- [x] 5.1 Reproduce the remaining flash path where a WebSocket-triggered `loadSession()` sets full `loading` state and replaces existing output with the loading placeholder.
+- [x] 5.2 Split initial/session-change loading from routine background refresh so existing reader content stays mounted while refreshes are in flight.
+- [x] 5.3 Prevent stale refresh responses or pending debounce timers from overwriting a newer selected session.
+- [x] 5.4 Add a focused client test proving an event-driven refresh does not show "Loading live reader..." when prior output is already displayed.
+- [x] 5.5 Add a focused client test proving the latest output DOM remains visible during delayed refresh resolution.
+- [x] 5.6 Run the WorkflowLiveReader test file and monitor client build.

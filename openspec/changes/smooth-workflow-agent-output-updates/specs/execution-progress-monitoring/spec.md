@@ -13,6 +13,13 @@ The Workflow monitor UI SHALL update live Agent output without remounting or fla
 - **THEN** the live reader SHALL preserve the selected Agent context
 - **AND** it SHALL NOT reset the reader to an empty, loading, or re-entering visual state
 
+#### Scenario: Background refresh starts while output is already visible
+- **WHEN** the Workflow Live Reader already has visible Agent output
+- **AND** a WebSocket or polling refresh starts a new request for the same session
+- **THEN** the existing output SHALL remain visible while the request is in flight
+- **AND** the reader SHALL NOT replace the output body with a full loading placeholder
+- **AND** any refresh affordance SHALL be local and non-disruptive
+
 ### Requirement: Workflow Agent output refreshes SHALL preserve reading position
 The Workflow live reader SHALL avoid unexpected scroll jumps during routine output refreshes.
 

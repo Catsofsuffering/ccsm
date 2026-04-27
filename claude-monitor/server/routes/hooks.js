@@ -12,6 +12,11 @@ const { v4: uuidv4 } = require("uuid");
 const { stmts, db } = require("../db");
 const { broadcast } = require("../websocket");
 const TranscriptCache = require("../lib/transcript-cache");
+const {
+  normalizeAgentTeamsPayload,
+  associateAgent,
+  buildTeamReturnSummary,
+} = require("../lib/agent-teams-normalizer");
 
 const router = Router();
 
@@ -36,6 +41,57 @@ function isDuplicateEvent(sessionId, agentId, eventType, summary) {
     )
     .get(sessionId, agentId, eventType, summary);
   return !!existing;
+}
+
+function normalizeReturnText(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function extractReturnText(eventData) {
+  if (!eventData || typeof eventData !== "object") return "";
+  return normalizeReturnText(
+    eventData.messageText ||
+      eventData.output ||
+      eventData.message ||
+      eventData.raw?.messageText ||
+      eventData.raw?.tool_input?.message ||
+      eventData.raw?.tool_response?.message ||
+      ""
+  );
+}
+
+function isDuplicateReturnOutput(sessionId, agentId, eventData) {
+  const returnText = extractReturnText(eventData);
+  if (!sessionId || !agentId || !returnText) return false;
+
+  const existing = db
+    .prepare(
+      `SELECT data FROM events
+       WHERE session_id = ? AND agent_id = ? AND event_type = 'TeamReturn'
+         AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')`
+    )
+    .all(sessionId, agentId);
+
+  return existing.some((event) => {
+    try {
+      return extractReturnText(JSON.parse(event.data)) === returnText;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function buildStructuredReturnData(normalized, source) {
+  return {
+    sender: normalized.sender,
+    recipient: normalized.recipient,
+    teamName: normalized.teamName,
+    taskId: normalized.taskId,
+    agentType: normalized.agentType,
+    messageText: normalized.messageText,
+    source,
+    raw: normalized.rawSource,
+  };
 }
 
 function ensureSession(sessionId, data) {
@@ -135,6 +191,7 @@ const processEvent = db.transaction((hookType, data) => {
   let toolName = data.tool_name || null;
   let summary = null;
   let agentId = mainAgentId;
+  let eventData = data;
 
   switch (hookType) {
     case "PreToolUse": {
@@ -183,6 +240,22 @@ const processEvent = db.transaction((hookType, data) => {
         summary = `Subagent spawned: ${subName}`;
       }
 
+      // Agent Teams: recognize SendMessage / mailbox / teammate-message tool
+      // payloads and store them through the normal event path so a single
+      // TeamReturn is persisted and broadcast immediately.
+      const normalized = normalizeAgentTeamsPayload(hookType, data);
+      if (normalized && !normalized.isLifecycleOnly) {
+        const sessionAgents = stmts.listAgentsBySession.all(sessionId);
+        const associatedAgentId = associateAgent(normalized, sessionAgents) || mainAgentId;
+        const returnSummary =
+          buildTeamReturnSummary(normalized) || `Teammate message via ${toolName}`;
+
+        agentId = associatedAgentId;
+        eventType = "TeamReturn";
+        summary = returnSummary;
+        eventData = buildStructuredReturnData(normalized, hookType);
+      }
+
       // Update main agent status to "working" — but only when main is the likely
       // actor. When main is idle and working subagents exist, PreToolUse events
       // come from subagents, not main. Incorrectly promoting main to "working"
@@ -219,6 +292,20 @@ const processEvent = db.transaction((hookType, data) => {
       if (mainAgent && mainAgent.status === "working") {
         stmts.updateAgent.run(null, null, null, null, null, null, mainAgentId);
         broadcast("agent_updated", stmts.getAgent.get(mainAgentId));
+      }
+
+      // Agent Teams: also handle SendMessage / mailbox responses in PostToolUse.
+      const normalized = normalizeAgentTeamsPayload(hookType, data);
+      if (normalized && !normalized.isLifecycleOnly) {
+        const sessionAgents = stmts.listAgentsBySession.all(sessionId);
+        const associatedAgentId = associateAgent(normalized, sessionAgents) || mainAgentId;
+        const returnSummary =
+          buildTeamReturnSummary(normalized) || `Teammate message via ${toolName}`;
+
+        agentId = associatedAgentId;
+        eventType = "TeamReturn";
+        summary = returnSummary;
+        eventData = buildStructuredReturnData(normalized, hookType);
       }
       break;
     }
@@ -313,19 +400,23 @@ const processEvent = db.transaction((hookType, data) => {
         // so clients see the teammate output without waiting for session completion.
         if (returnOutput) {
           const returnSummary = `Teammate return: ${matchingSub.name} — ${returnOutput.slice(0, 120)}`;
-          if (!isDuplicateEvent(sessionId, agentId, "TeamReturn", returnSummary)) {
+          const returnData = {
+            agent_name: matchingSub.name,
+            agent_type: matchingSub.subagent_type || data.agent_type || null,
+            output: returnOutput,
+            source: "SubagentStop",
+          };
+          if (
+            !isDuplicateEvent(sessionId, agentId, "TeamReturn", returnSummary) &&
+            !isDuplicateReturnOutput(sessionId, agentId, returnData)
+          ) {
             stmts.insertEvent.run(
               sessionId,
               agentId,
               "TeamReturn",
               null,
               returnSummary,
-              JSON.stringify({
-                agent_name: matchingSub.name,
-                agent_type: matchingSub.subagent_type || data.agent_type || null,
-                output: returnOutput,
-                source: "SubagentStop",
-              })
+              JSON.stringify(returnData)
             );
             broadcast("new_event", {
               session_id: sessionId,
@@ -600,7 +691,9 @@ const processEvent = db.transaction((hookType, data) => {
 
   // Deduplication: skip event insertion and live broadcast when the same signature
   // already exists within 30 seconds (handles duplicate hook delivery).
-  const isDuplicate = isDuplicateEvent(sessionId, agentId, eventType, summary);
+  const isDuplicate =
+    isDuplicateEvent(sessionId, agentId, eventType, summary) ||
+    (eventType === "TeamReturn" && isDuplicateReturnOutput(sessionId, agentId, eventData));
   if (isDuplicate) {
     return {
       session_id: sessionId,
@@ -619,7 +712,7 @@ const processEvent = db.transaction((hookType, data) => {
     eventType,
     toolName,
     summary,
-    JSON.stringify(data)
+    JSON.stringify(eventData)
     // created_at uses default
   );
 
