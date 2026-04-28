@@ -28,6 +28,7 @@ export {
   prepareClaudeMonitorRuntime,
   prepareCodexMonitorRuntime,
   restartClaudeMonitor,
+  shutdownClaudeMonitor,
   startClaudeMonitor,
 } from './utils/claude-monitor'
 export {

@@ -27,7 +27,7 @@ The monitor has grown from a hook dashboard into the operational surface for Cod
 ## Research Notes
 
 - Current npm package for the binary is `@agentclientprotocol/claude-agent-acp`; it exposes the `claude-agent-acp` bin and describes itself as an ACP-compatible coding agent powered by the Claude Agent SDK.
-- Current package metadata reports version `0.31.0`, with dependencies on `@agentclientprotocol/sdk` `0.20.0`, `@anthropic-ai/claude-agent-sdk` `0.2.119`, and `zod`.
+- Current package metadata changes independently from CCSM releases; on 2026-04-28 npm reports version `0.31.1`, with dependencies on `@agentclientprotocol/sdk` `0.20.0`, `@anthropic-ai/claude-agent-sdk` `0.2.119`, and `zod`. Planning should detect and report installed versions instead of hard-coding a single package version.
 - The older package namespace `@zed-industries/claude-agent-acp` also exists but is behind at `0.23.1`; planning should prefer the `@agentclientprotocol/*` package unless a compatibility reason appears.
 - The repository currently has no `claude-agent-acp` or ACP integration.
 - The monitor already has a worker adapter layer in `claude-monitor/server/lib/worker-runtime.js`, but it only detects CLI-style `codex-cli` and `claude-cli` adapters.

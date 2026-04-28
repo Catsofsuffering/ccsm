@@ -132,6 +132,105 @@ async function stopMonitorOnPort(port: number): Promise<boolean> {
   return false
 }
 
+export interface ShutdownResult {
+  success: boolean
+  reason?: 'not-running' | 'stopped' | 'unknown-service'
+  message?: string
+}
+
+/**
+ * Shutdown the Claude monitor on the configured port.
+ * Reuses existing port health and PID safety checks from restart logic.
+ *
+ * @returns ShutdownResult with reason:
+ *   - 'not-running': Monitor is not running (success, no-op)
+ *   - 'stopped': Monitor was stopped successfully
+ *   - 'unknown-service': Port is occupied by unknown service (error)
+ */
+export async function shutdownClaudeMonitor(options?: {
+  canonicalHomeDir?: string
+  installDir?: string
+  port?: number
+}): Promise<ShutdownResult> {
+  const port = options?.port || DEFAULT_MONITOR_PORT
+  const canonicalHomeDir = options?.canonicalHomeDir || options?.installDir || getCanonicalHomeDir()
+  const monitorDir = await resolveInstalledMonitorDir(canonicalHomeDir, CLAUDE_MONITOR_NAME)
+
+  if (!await fs.pathExists(join(monitorDir, 'server', 'index.js'))) {
+    throw new Error(`Claude monitor is not installed at ${monitorDir}`)
+  }
+
+  // Check if monitor is healthy
+  const isHealthy = await isMonitorHealthy(port)
+
+  if (!isHealthy) {
+    // Monitor is not running - check if something else is on the port
+    const listeningPid = await findListeningPid(port)
+    if (listeningPid && listeningPid !== process.pid) {
+      // Something else is using the port
+      return {
+        success: false,
+        reason: 'unknown-service',
+        message: `Port ${port} is occupied by an unknown service (PID ${listeningPid}). Stop it manually.`,
+      }
+    }
+    // Port is free or we're on it - monitor is not running
+    return {
+      success: true,
+      reason: 'not-running',
+      message: 'Claude monitor is not running.',
+    }
+  }
+
+  // Monitor is healthy - find PID and stop it
+  const listeningPid = await findListeningPid(port)
+  if (listeningPid && listeningPid !== process.pid) {
+    // Try to stop
+    const stopped = await stopMonitorOnPort(port)
+    if (!stopped) {
+      // Failed to stop - check if it's still healthy or unknown service
+      const stillHealthy = await isMonitorHealthy(port)
+      if (stillHealthy) {
+        const pid = await findListeningPid(port)
+        return {
+          success: false,
+          reason: 'unknown-service',
+          message: pid
+            ? `Port ${port} is occupied by an unknown service (PID ${pid}). Stop it manually.`
+            : `Port ${port} is occupied by an unknown service. Stop it manually.`,
+        }
+      }
+    }
+
+    // Wait for monitor to actually stop
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      if (!await isMonitorHealthy(port)) {
+        return {
+          success: true,
+          reason: 'stopped',
+          message: 'Claude monitor stopped.',
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+
+    // Timeout waiting for stop
+    return {
+      success: false,
+      reason: 'unknown-service',
+      message: `Monitor did not stop within expected time on port ${port}.`,
+    }
+  }
+
+  // Listening PID is null or our own process - shouldn't happen if healthy, but handle gracefully
+  return {
+    success: true,
+    reason: 'not-running',
+    message: 'Claude monitor is not running.',
+  }
+}
+
 const HOOKS_WITH_MATCHER = ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStop', 'Notification'] as const
 const HOOKS_WITHOUT_MATCHER = ['SessionStart', 'SessionEnd'] as const
 const ALL_HOOK_TYPES = [...HOOKS_WITH_MATCHER, ...HOOKS_WITHOUT_MATCHER]
@@ -238,6 +337,36 @@ async function writeJsonObject(path: string, value: Record<string, any>): Promis
   await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf-8')
 }
 
+async function pruneStaleBundledMonitorArtifacts(targetDir: string): Promise<void> {
+  if (!await fs.pathExists(targetDir)) {
+    return
+  }
+
+  async function visit(dir: string): Promise<void> {
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name)
+      const relativePath = fullPath.slice(targetDir.length + 1).replace(/\\/g, '/')
+
+      const shouldRemoveDirectory = entry.isDirectory()
+        && (entry.name === '__tests__' || relativePath === 'client/dist')
+      const shouldRemoveFile = entry.isFile()
+        && (/\.(test|spec)\.[cm]?[jt]sx?$/.test(entry.name) || entry.name.endsWith('.tsbuildinfo'))
+
+      if (shouldRemoveDirectory || shouldRemoveFile) {
+        await fs.remove(fullPath)
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        await visit(fullPath)
+      }
+    }
+  }
+
+  await visit(targetDir)
+}
+
 function ensureClaudeExecPermissionAllowlist(settings: Record<string, any>): string[] {
   if (!settings.permissions || typeof settings.permissions !== 'object' || Array.isArray(settings.permissions)) {
     settings.permissions = {}
@@ -295,11 +424,15 @@ export async function installBundledMonitor(
   }
 
   await fs.ensureDir(installDir)
+  await pruneStaleBundledMonitorArtifacts(targetDir)
   await fs.copy(sourceDir, targetDir, {
     overwrite: true,
     errorOnExist: false,
     filter: (src) => {
       const normalized = src.replace(/\\/g, '/')
+      const isTestPath = normalized.includes('/__tests__/')
+        || normalized.endsWith('/__tests__')
+        || /\.(test|spec)\.[cm]?[jt]sx?$/.test(normalized)
       return !normalized.includes('/node_modules/')
         && !normalized.endsWith('/node_modules')
         && !normalized.includes('/.git/')
@@ -308,6 +441,7 @@ export async function installBundledMonitor(
         && !normalized.endsWith('/data')
         && !normalized.includes('/client/dist/')
         && !normalized.endsWith('/client/dist')
+        && !isTestPath
         && !normalized.endsWith('.tsbuildinfo')
     },
   })

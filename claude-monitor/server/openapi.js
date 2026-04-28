@@ -61,6 +61,7 @@ function createOpenApiSpec() {
       { name: "Stats", description: "High-level dashboard counters" },
       { name: "Analytics", description: "Aggregated analytics views" },
       { name: "Hooks", description: "Claude hook ingestion endpoint" },
+      { name: "ACP", description: "Agent Communication Protocol ingestion endpoint" },
       { name: "Pricing", description: "Model pricing and token cost calculations" },
       { name: "Workflows", description: "Workflow intelligence and session drill-in" },
       { name: "OpenSpec", description: "Read-only OpenSpec change board data" },
@@ -528,6 +529,36 @@ function createOpenApiSpec() {
             event: { $ref: "#/components/schemas/DashboardEvent" },
           },
         },
+        AcpEventRequest: {
+          type: "object",
+          required: ["type", "session_id"],
+          properties: {
+            type: {
+              type: "string",
+              description:
+                "ACP event type or supported alias (session_start, agent_start, tool_use, output, model_info, etc.)",
+            },
+            session_id: { type: "string" },
+            agent_id: { type: "string" },
+            correlation_id: { type: "string" },
+            model: { type: "string" },
+            message: { type: "string" },
+          },
+          additionalProperties: true,
+        },
+        AcpEventResponse: {
+          type: "object",
+          required: ["ok"],
+          properties: {
+            ok: { type: "boolean", enum: [true] },
+            eventId: { type: "integer", nullable: true },
+            duplicate: { type: "boolean" },
+            diagnostic: { type: "boolean" },
+            session_id: { type: "string" },
+            agent_id: { type: "string", nullable: true },
+            event_type: { type: "string" },
+          },
+        },
         PricingRule: {
           type: "object",
           required: [
@@ -732,6 +763,115 @@ function createOpenApiSpec() {
             },
           },
         },
+        AdapterHealthItem: {
+          type: "object",
+          required: ["id", "runtime", "transport", "available", "source", "command", "version", "health", "launchReady", "limitations"],
+          properties: {
+            id: { type: "string" },
+            runtime: { type: "string" },
+            transport: { type: "string" },
+            available: { type: "boolean" },
+            source: { type: "string" },
+            command: { type: "string" },
+            version: { type: "string", nullable: true },
+            health: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+            launchReady: { type: "boolean" },
+            limitations: { type: "array", items: { type: "string" } },
+          },
+        },
+        RuntimeHealth: {
+          type: "object",
+          required: ["adapters", "hooks", "database", "openspec", "websocket", "transcriptCache", "server", "ingestion", "overall"],
+          properties: {
+            adapters: {
+              type: "object",
+              required: ["status", "summary", "items"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                items: { type: "array", items: { $ref: "#/components/schemas/AdapterHealthItem" } },
+              },
+            },
+            hooks: {
+              type: "object",
+              required: ["status", "summary"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                installed: { type: "boolean" },
+                path: { type: "string", nullable: true },
+                hooks: { type: "object", additionalProperties: { type: "boolean" } },
+              },
+            },
+            database: {
+              type: "object",
+              required: ["status", "summary", "counts", "size"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                counts: { type: "object", additionalProperties: { type: "integer" } },
+                size: { type: "integer" },
+              },
+            },
+            openspec: {
+              type: "object",
+              required: ["status", "summary"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                workspaceRoot: { type: "string", nullable: true },
+                source: { type: "string", nullable: true },
+                activeWorkspaceRoot: { type: "string", nullable: true },
+                detectedWorkspaceRoots: { type: "array", items: { type: "string" } },
+              },
+            },
+            websocket: {
+              type: "object",
+              required: ["status", "summary", "connections"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                connections: { type: "integer" },
+              },
+            },
+            transcriptCache: {
+              type: "object",
+              required: ["status", "summary"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                entries: { type: "integer" },
+                paths: { type: "array", items: { type: "string" } },
+              },
+            },
+            server: {
+              type: "object",
+              required: ["status", "summary", "uptime", "nodeVersion", "platform"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                uptime: { type: "number" },
+                nodeVersion: { type: "string" },
+                platform: { type: "string" },
+              },
+            },
+            ingestion: {
+              type: "object",
+              required: ["status", "summary"],
+              properties: {
+                status: { type: "string", enum: ["healthy", "degraded", "unavailable"] },
+                summary: { type: "string" },
+                sessions: { type: "integer" },
+                events: { type: "integer" },
+                agents: { type: "integer" },
+              },
+            },
+            overall: {
+              type: "string",
+              enum: ["healthy", "degraded", "unavailable"],
+            },
+          },
+        },
         SettingsInfoResponse: {
           type: "object",
           required: ["db", "hooks", "server", "openspec", "transcript_cache"],
@@ -780,6 +920,9 @@ function createOpenApiSpec() {
                 entries: { type: "integer" },
                 paths: { type: "array", items: { type: "string" } },
               },
+            },
+            runtime_health: {
+              $ref: "#/components/schemas/RuntimeHealth",
             },
           },
         },
@@ -1253,6 +1396,39 @@ function createOpenApiSpec() {
           },
         },
       },
+      "/api/acp/event": {
+        post: {
+          tags: ["ACP"],
+          summary: "Ingest ACP adapter event",
+          operationId: "ingestAcpEvent",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AcpEventRequest" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "ACP event processed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/AcpEventResponse" },
+                },
+              },
+            },
+            400: {
+              description: "Invalid ACP payload",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/api/pricing": {
         get: {
           tags: ["Pricing"],
@@ -1666,7 +1842,7 @@ function createOpenApiSpec() {
                           properties: {
                             id: { type: "string" },
                             runtime: { type: "string" },
-                            transport: { type: "string", enum: ["cli"] },
+                            transport: { type: "string", enum: ["cli", "acp"] },
                             available: { type: "boolean" },
                             command: { type: "string" },
                             source: { type: "string", enum: ["env", "path", "unresolved"] },
@@ -1919,7 +2095,7 @@ function createOpenApiSpec() {
                           properties: {
                             id: { type: "string" },
                             runtime: { type: "string" },
-                            transport: { type: "string", enum: ["cli"] },
+                            transport: { type: "string", enum: ["cli", "acp"] },
                             available: { type: "boolean" },
                             command: { type: "string" },
                             source: { type: "string", enum: ["env", "path", "unresolved"] },
@@ -1958,7 +2134,7 @@ function createOpenApiSpec() {
                             label: { type: "string" },
                             adapterId: { type: "string" },
                             adapterAvailable: { type: "boolean" },
-                            transport: { type: "string", enum: ["cli"] },
+                            transport: { type: "string", enum: ["cli", "acp"] },
                             source: { type: "string", enum: ["env", "path", "unresolved"] },
                             command: { type: "string" },
                             launchReady: { type: "boolean" },

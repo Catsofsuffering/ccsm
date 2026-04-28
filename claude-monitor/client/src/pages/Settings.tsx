@@ -48,7 +48,7 @@ import { api } from "../lib/api";
 import { eventBus } from "../lib/eventBus";
 import { fmt, fmtCost } from "../lib/format";
 import { Tip } from "../components/Tip";
-import type { ModelPricing, WSMessage } from "../lib/types";
+import type { ModelPricing, RuntimeHealth, WSMessage } from "../lib/types";
 
 // ─── Notification preferences ───
 
@@ -108,6 +108,7 @@ interface SystemInfo {
   db: { path: string; size: number; counts: Record<string, number> };
   hooks: { installed: boolean; path: string; hooks: Record<string, boolean> };
   server: { uptime: number; node_version: string; platform: string; ws_connections: number };
+  runtime_health?: RuntimeHealth;
 }
 
 function formatTimestamp(iso: string): string {
@@ -1138,6 +1139,181 @@ export function Settings() {
           <p className="text-xs text-gray-500">Loading server info...</p>
         )}
       </section>
+
+      {/* ─── RUNTIME HEALTH ─── */}
+      {sysInfo?.runtime_health && (
+        <section>
+          <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2 mb-1">
+            <Activity className="w-4 h-4 text-gray-500" />
+            Runtime Health
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Monitor component health and adapter status.
+          </p>
+
+          <div className="space-y-4">
+            {/* Overall status */}
+            <div className="card p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-300">Overall Status</p>
+                <span
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
+                    sysInfo.runtime_health.overall === "healthy"
+                      ? "text-accent bg-accent-muted border border-accent/30"
+                      : sysInfo.runtime_health.overall === "degraded"
+                        ? "text-gray-300 bg-gray-500/10 border border-gray-400/30"
+                        : "text-gray-400 bg-gray-500/10 border border-gray-400/30"
+                  }`}
+                >
+                  {sysInfo.runtime_health.overall === "healthy" ? (
+                    <CheckCircle className="w-3 h-3" />
+                  ) : sysInfo.runtime_health.overall === "degraded" ? (
+                    <AlertTriangle className="w-3 h-3" />
+                  ) : (
+                    <XCircle className="w-3 h-3" />
+                  )}
+                  {sysInfo.runtime_health.overall}
+                </span>
+              </div>
+            </div>
+
+            {/* Component health grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {[
+                {
+                  key: "hooks",
+                  label: "Hooks",
+                  icon: <Plug className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.hooks,
+                },
+                {
+                  key: "database",
+                  label: "Database",
+                  icon: <Database className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.database,
+                },
+                {
+                  key: "openspec",
+                  label: "OpenSpec",
+                  icon: <GitBranch className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.openspec,
+                },
+                {
+                  key: "websocket",
+                  label: "WebSocket",
+                  icon: <Wifi className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.websocket,
+                },
+                {
+                  key: "transcriptCache",
+                  label: "Cache",
+                  icon: <HardDrive className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.transcriptCache,
+                },
+                {
+                  key: "server",
+                  label: "Server",
+                  icon: <Server className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.server,
+                },
+                {
+                  key: "ingestion",
+                  label: "Ingestion",
+                  icon: <Zap className="w-3.5 h-3.5" />,
+                  health: sysInfo.runtime_health.ingestion,
+                },
+              ].map((component) => (
+                <div
+                  key={component.key}
+                  className="bg-surface-2 rounded-lg px-3 py-3 border-l-2 border-gray-500/20"
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-gray-400">{component.icon}</span>
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">
+                      {component.label}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {component.health.status === "healthy" ? (
+                      <CheckCircle className="w-3 h-3 text-accent" />
+                    ) : component.health.status === "degraded" ? (
+                      <AlertTriangle className="w-3 h-3 text-gray-400" />
+                    ) : (
+                      <XCircle className="w-3 h-3 text-gray-400" />
+                    )}
+                    <span
+                      className={`text-xs ${
+                        component.health.status === "healthy"
+                          ? "text-accent"
+                          : component.health.status === "degraded"
+                            ? "text-gray-300"
+                            : "text-gray-400"
+                      }`}
+                    >
+                      {component.health.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Adapter health */}
+            <div className="card p-5 space-y-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
+                Worker Adapters
+              </p>
+              {sysInfo.runtime_health.adapters.items.map((adapter) => (
+                <div
+                  key={adapter.id}
+                  className="flex items-center justify-between flex-wrap gap-3 bg-surface-2 rounded-lg px-4 py-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        adapter.health === "healthy"
+                          ? "bg-accent"
+                          : adapter.health === "degraded"
+                            ? "bg-yellow-500"
+                            : "bg-gray-500"
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-gray-200 font-mono truncate">{adapter.id}</p>
+                        <span className="text-[10px] text-gray-500 bg-surface-3 px-1.5 py-0.5 rounded">
+                          {adapter.transport}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 truncate">
+                        {adapter.available
+                          ? adapter.version
+                            ? `v${adapter.version}`
+                            : "available"
+                          : "unavailable"}
+                        {adapter.launchReady ? " · launch-ready" : ""}
+                        {adapter.limitations.length > 0
+                          ? ` · ${adapter.limitations[0]}`
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                      adapter.health === "healthy"
+                        ? "text-accent bg-accent-muted border border-accent/30"
+                        : adapter.health === "degraded"
+                          ? "text-gray-300 bg-gray-500/10 border border-gray-400/30"
+                          : "text-gray-400 bg-gray-500/10 border border-gray-400/30"
+                    }`}
+                  >
+                    {adapter.health}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

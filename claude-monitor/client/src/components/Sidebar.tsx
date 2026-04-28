@@ -21,10 +21,13 @@ import {
   PanelLeftOpen,
   SunMedium,
   MoonStar,
+  ChevronDown,
+  ChevronRight,
+  Check,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { Theme } from "../lib/theme";
-import type { OpenSpecWorkspaceInfo } from "../lib/types";
+import type { OpenSpecWorkspaceInfo, SelectableProjectRoot } from "../lib/types";
 
 const NAV_ITEMS = [
   { to: "/board", icon: LayoutPanelTop, label: "Board" },
@@ -68,6 +71,8 @@ const SIDEBAR_VERSION = `v${__CCGS_VERSION__}`;
 export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle }: SidebarProps) {
   const nextThemeLabel = theme === "dark" ? "Day mode" : "Night mode";
   const [workspaceInfo, setWorkspaceInfo] = useState<OpenSpecWorkspaceInfo | null>(null);
+  const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
+  const [, setSelectingProject] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +100,21 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
 
   const currentWorkspace = workspaceInfo?.workspaceRoot ?? null;
   const currentWorkspaceLabel = workspaceLabel(currentWorkspace);
+  const selectableProjects = workspaceInfo?.selectableProjectRoots ?? [];
+
+  const handleProjectSelect = async (project: SelectableProjectRoot) => {
+    setProjectSelectorOpen(false);
+    setSelectingProject(true);
+    try {
+      await api.settings.updateOpenSpecWorkspace(project.root);
+      // Reload the page to invalidate all cached state and refresh OpenSpec views
+      window.location.reload();
+    } catch {
+      // Ignore errors - workspace info will refresh on next poll
+    } finally {
+      setSelectingProject(false);
+    }
+  };
 
   return (
     <aside
@@ -109,19 +129,55 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
             <Activity className="w-4 h-4 text-accent" />
           </div>
           {!collapsed && (
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="text-sm font-semibold text-gray-100 truncate">Agent Monitor</h1>
-              <p className="mt-0.5 truncate text-[11px] text-gray-500">
-                {currentWorkspaceLabel
-                  ? `Project: ${currentWorkspaceLabel}`
-                  : "Project: workspace not resolved"}
-              </p>
-              {currentWorkspace && (
+              {selectableProjects.length > 1 ? (
+                <button
+                  onClick={() => setProjectSelectorOpen(!projectSelectorOpen)}
+                  className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-300 transition-colors w-full truncate"
+                >
+                  <span className="truncate">
+                    {currentWorkspaceLabel
+                      ? `Project: ${currentWorkspaceLabel}`
+                      : "Project: workspace not resolved"}
+                  </span>
+                  {projectSelectorOpen ? (
+                    <ChevronDown className="w-3 h-3 flex-shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3 flex-shrink-0" />
+                  )}
+                </button>
+              ) : (
+                <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                  {currentWorkspaceLabel
+                    ? `Project: ${currentWorkspaceLabel}`
+                    : "Project: workspace not resolved"}
+                </p>
+              )}
+              {currentWorkspace && !projectSelectorOpen && (
                 <p className="truncate text-[10px] text-gray-600">{currentWorkspace}</p>
               )}
             </div>
           )}
         </div>
+        {/* Project selector dropdown */}
+        {!collapsed && projectSelectorOpen && selectableProjects.length > 0 && (
+          <div className="mt-2 mx-2 bg-surface-2 border border-border rounded-md overflow-hidden">
+            {selectableProjects.map((project) => (
+              <button
+                key={project.root}
+                onClick={() => handleProjectSelect(project)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-3 transition-colors ${
+                  project.root === currentWorkspace ? "text-accent" : "text-gray-400"
+                }`}
+              >
+                <span className="flex-1 truncate">{project.label}</span>
+                {project.root === currentWorkspace && <Check className="w-3 h-3 flex-shrink-0" />}
+                <span className="text-[10px] text-gray-600 truncate">{project.source}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Nav */}

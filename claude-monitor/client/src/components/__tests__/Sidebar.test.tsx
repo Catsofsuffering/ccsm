@@ -4,8 +4,8 @@
  * @author Son Nguyen <hoangson091104@gmail.com>
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Sidebar } from "../Sidebar";
 import { api } from "../../lib/api";
@@ -14,11 +14,16 @@ vi.mock("../../lib/api", () => ({
   api: {
     settings: {
       info: vi.fn(),
+      updateOpenSpecWorkspace: vi.fn(),
     },
   },
 }));
 
+const originalLocation = window.location;
+const mockLocation = { reload: vi.fn() };
+
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(api.settings.info).mockResolvedValue({
     db: { path: "", size: 0, counts: {} },
     hooks: { installed: false, path: "", hooks: {} },
@@ -28,7 +33,32 @@ beforeEach(() => {
       source: "active",
       activeWorkspaceRoot: "B:\\project\\DataBeacon",
       detectedWorkspaceRoots: ["B:\\project\\DataBeacon"],
+      selectableProjectRoots: [],
     },
+  });
+  vi.mocked(api.settings.updateOpenSpecWorkspace).mockResolvedValue({
+    ok: true,
+    openspec: {
+      workspaceRoot: "B:\\project\\second",
+      source: "sessions",
+      activeWorkspaceRoot: "B:\\project\\second",
+      detectedWorkspaceRoots: ["B:\\project\\first", "B:\\project\\second"],
+      selectableProjectRoots: [],
+    },
+  });
+  Object.defineProperty(window, "location", {
+    value: mockLocation,
+    writable: true,
+    configurable: true,
+  });
+  mockLocation.reload.mockClear();
+});
+
+afterEach(() => {
+  Object.defineProperty(window, "location", {
+    value: originalLocation,
+    writable: true,
+    configurable: true,
   });
 });
 
@@ -91,5 +121,43 @@ describe("Sidebar", () => {
     expect(hrefs).toContain("/workflows");
     expect(hrefs).toContain("https://github.com/Catsofsuffering");
     expect(hrefs).toContain("https://github.com/Catsofsuffering/ccsm");
+  });
+
+  it("should call updateOpenSpecWorkspace and reload when selecting a project", async () => {
+    vi.mocked(api.settings.info).mockResolvedValue({
+      db: { path: "", size: 0, counts: {} },
+      hooks: { installed: false, path: "", hooks: {} },
+      server: { uptime: 0, node_version: "v22.0.0", platform: "win32", ws_connections: 0 },
+      openspec: {
+        workspaceRoot: "B:\\project\\first",
+        source: "active",
+        activeWorkspaceRoot: "B:\\project\\first",
+        detectedWorkspaceRoots: ["B:\\project\\first", "B:\\project\\second"],
+        selectableProjectRoots: [
+          { label: "First Project", root: "B:\\project\\first", source: "active" },
+          { label: "Second Project", root: "B:\\project\\second", source: "sessions" },
+        ],
+      },
+    });
+
+    renderSidebar(true);
+
+    // Open the project selector
+    const projectButton = await screen.findByText("Project: first");
+    await act(async () => {
+      projectButton.click();
+    });
+
+    // Click on the second project
+    const secondProject = await screen.findByText("Second Project");
+    await act(async () => {
+      secondProject.click();
+    });
+
+    // Verify updateOpenSpecWorkspace was called with the correct root
+    expect(api.settings.updateOpenSpecWorkspace).toHaveBeenCalledWith("B:\\project\\second");
+
+    // Verify page reload was triggered
+    expect(mockLocation.reload).toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@
 
 const { Router } = require("express");
 const { db, stmts } = require("../db");
+const { workspaceSessionFilter, getBestKnownModelForSession, getActiveWorkspaceRoot } = require("../lib/openspec-state");
 
 const router = Router();
 
@@ -20,18 +21,21 @@ router.get("/", (req, res) => {
   try {
     // Optional status filter: "active", "completed", or omit for all
     const statusFilter = req.query.status || null;
+    // Default to active workspace when workspaceRoot is not explicitly provided
+    const workspaceRoot = req.query.workspaceRoot || getActiveWorkspaceRoot() || null;
+
     const data = {
-      stats: getWorkflowStats(statusFilter),
-      orchestration: getOrchestrationData(statusFilter),
-      toolFlow: getToolFlowData(statusFilter),
-      effectiveness: getSubagentEffectiveness(statusFilter),
-      patterns: getWorkflowPatterns(statusFilter),
-      modelDelegation: getModelDelegation(statusFilter),
-      errorPropagation: getErrorPropagation(statusFilter),
-      concurrency: getConcurrencyData(statusFilter),
-      complexity: getSessionComplexity(statusFilter),
-      compaction: getCompactionImpact(statusFilter),
-      cooccurrence: getAgentCooccurrence(statusFilter),
+      stats: getWorkflowStats(statusFilter, workspaceRoot),
+      orchestration: getOrchestrationData(statusFilter, workspaceRoot),
+      toolFlow: getToolFlowData(statusFilter, workspaceRoot),
+      effectiveness: getSubagentEffectiveness(statusFilter, workspaceRoot),
+      patterns: getWorkflowPatterns(statusFilter, workspaceRoot),
+      modelDelegation: getModelDelegation(statusFilter, workspaceRoot),
+      errorPropagation: getErrorPropagation(statusFilter, workspaceRoot),
+      concurrency: getConcurrencyData(statusFilter, workspaceRoot),
+      complexity: getSessionComplexity(statusFilter, workspaceRoot),
+      compaction: getCompactionImpact(statusFilter, workspaceRoot),
+      cooccurrence: getAgentCooccurrence(statusFilter, workspaceRoot),
     };
     res.json(data);
   } catch (err) {
@@ -107,79 +111,189 @@ function sessionIdFilter(statusFilter) {
   };
 }
 
-function getWorkflowStats(statusFilter) {
+/**
+ * Build a session_id filter for agents table with explicit alias.
+ * Use this instead of string replacement to avoid broken SQL.
+ */
+function agentSessionIdFilter(statusFilter) {
+  if (!statusFilter || statusFilter === "all") return { clause: "", params: [] };
+  return {
+    clause: " AND a.session_id IN (SELECT id FROM sessions WHERE status = ?)",
+    params: [statusFilter],
+  };
+}
+
+/**
+ * Build a session_id filter for a named agents alias.
+ * Use this instead of string replacement to avoid broken SQL.
+ */
+function namedAgentSessionIdFilter(statusFilter, alias) {
+  if (!statusFilter || statusFilter === "all") return { clause: "", params: [] };
+  return {
+    clause: ` AND ${alias}.session_id IN (SELECT id FROM sessions WHERE status = ?)`,
+    params: [statusFilter],
+  };
+}
+
+/**
+ * Build a session_id filter for a named events alias.
+ * Unlike agent filters, events use e.session_id directly without a WHERE clause wrapper.
+ * Use this instead of string replacement to avoid broken SQL.
+ * Note: includes " AND " prefix since it's appended to an existing WHERE clause.
+ */
+function eventSessionIdFilter(statusFilter, alias = "session_id") {
+  if (!statusFilter || statusFilter === "all") return { clause: "", params: [] };
+  return {
+    clause: ` AND ${alias} IN (SELECT id FROM sessions WHERE status = ?)`,
+    params: [statusFilter],
+  };
+}
+
+function getWorkflowStats(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
+
+  // Total sessions - scoped to workspace
   const totalSessions = db
-    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
-    .get(...ss.params).c;
-  const totalAgents = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE 1=1${sf.clause}`)
-    .get(...sf.params).c;
-  const totalSubagents = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE type = 'subagent'${sf.clause}`)
-    .get(...sf.params).c;
+    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+    .get(...ss.params, ...wf.params).c;
+
+  // Total agents - need to join sessions for workspace filter
+  let totalAgents, totalSubagents, completedAgents, errorAgents, totalCompactions;
+  let depthRows;
+  let avgCompactions;
+
+  if (workspaceRoot) {
+    // Join with sessions to apply workspace filter
+    totalAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE 1=1${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
+    totalSubagents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE a.type = 'subagent'${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
+    completedAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE a.status = 'completed'${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
+    errorAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE a.status = 'error'${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
+    totalCompactions = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE a.subagent_type = 'compaction'${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
+
+    // Depth via joined sessions - filter by session IDs matching workspace first
+    const scopedSessionIds = db
+      .prepare(`SELECT id FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .all(...ss.params, ...wf.params)
+      .map(r => r.id);
+
+    if (scopedSessionIds.length > 0) {
+      const placeholders = scopedSessionIds.map(() => '?').join(',');
+      depthRows = db
+        .prepare(
+          `WITH RECURSIVE agent_depth AS (
+            SELECT id, session_id, parent_agent_id, 0 as depth FROM agents WHERE parent_agent_id IS NULL AND session_id IN (${placeholders})
+            UNION ALL
+            SELECT a.id, a.session_id, a.parent_agent_id, ad.depth + 1
+            FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id WHERE a.session_id IN (${placeholders})
+          )
+          SELECT session_id, MAX(depth) as max_depth FROM agent_depth
+          WHERE 1=1${sf.clause}
+          GROUP BY session_id`
+        )
+        .all(...scopedSessionIds, ...scopedSessionIds, ...sf.params);
+    } else {
+      depthRows = [];
+    }
+  } else {
+    totalAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE 1=1${sf.clause}`)
+      .get(...sf.params).c;
+    totalSubagents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE type = 'subagent'${sf.clause}`)
+      .get(...sf.params).c;
+    completedAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE status = 'completed'${sf.clause}`)
+      .get(...sf.params).c;
+    errorAgents = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE status = 'error'${sf.clause}`)
+      .get(...sf.params).c;
+    totalCompactions = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`)
+      .get(...sf.params).c;
+
+    depthRows = db
+      .prepare(
+        `WITH RECURSIVE agent_depth AS (
+          SELECT id, session_id, parent_agent_id, 0 as depth FROM agents WHERE parent_agent_id IS NULL
+          UNION ALL
+          SELECT a.id, a.session_id, a.parent_agent_id, ad.depth + 1
+          FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id
+        )
+        SELECT session_id, MAX(depth) as max_depth FROM agent_depth
+        WHERE 1=1${sf.clause}
+        GROUP BY session_id`
+      )
+      .all(...sf.params);
+  }
 
   // Average subagents per session
   const avgSubagents = totalSessions > 0 ? +(totalSubagents / totalSessions).toFixed(1) : 0;
 
   // Agent success rate
-  const completedAgents = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE status = 'completed'${sf.clause}`)
-    .get(...sf.params).c;
-  const errorAgents = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE status = 'error'${sf.clause}`)
-    .get(...sf.params).c;
   const finishedAgents = completedAgents + errorAgents;
   const successRate =
     finishedAgents > 0 ? +((completedAgents / finishedAgents) * 100).toFixed(1) : 100;
 
-  // Average max depth per session
-  const depthRows = db
-    .prepare(
-      `WITH RECURSIVE agent_depth AS (
-        SELECT id, session_id, parent_agent_id, 0 as depth FROM agents WHERE parent_agent_id IS NULL
-        UNION ALL
-        SELECT a.id, a.session_id, a.parent_agent_id, ad.depth + 1
-        FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id
-      )
-      SELECT session_id, MAX(depth) as max_depth FROM agent_depth
-      WHERE 1=1${sf.clause}
-      GROUP BY session_id`
-    )
-    .all(...sf.params);
   const avgDepth =
     depthRows.length > 0
       ? +(depthRows.reduce((s, r) => s + r.max_depth, 0) / depthRows.length).toFixed(1)
       : 0;
 
   // Average session duration
-  const sessions = db
-    .prepare(`SELECT started_at, ended_at FROM sessions s WHERE ended_at IS NOT NULL${ss.clause}`)
-    .all(...ss.params);
-  const totalDuration = sessions.reduce((s, sess) => s + durationSec(sess), 0);
-  const avgDurationSec = sessions.length > 0 ? Math.round(totalDuration / sessions.length) : 0;
+  const sessionsDur = db
+    .prepare(`SELECT started_at, ended_at FROM sessions s WHERE ended_at IS NOT NULL${ss.clause}${wf.clause}`)
+    .all(...ss.params, ...wf.params);
+  const totalDuration = sessionsDur.reduce((s, sess) => s + durationSec(sess), 0);
+  const avgDurationSec = sessionsDur.length > 0 ? Math.round(totalDuration / sessionsDur.length) : 0;
 
-  // Total compactions
-  const totalCompactions = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`)
-    .get(...sf.params).c;
-  const avgCompactions = totalSessions > 0 ? +(totalCompactions / totalSessions).toFixed(1) : 0;
+  avgCompactions = totalSessions > 0 ? +(totalCompactions / totalSessions).toFixed(1) : 0;
 
-  // Most common tool flow (top 2-tool sequence)
-  const topFlow = db
-    .prepare(
-      `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as c
-       FROM events e1
-       JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
-         SELECT MIN(e3.id) FROM events e3
-         WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
-       )
-       WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${sf.clause.replace("session_id", "e1.session_id")}
-       GROUP BY e1.tool_name, e2.tool_name
-       ORDER BY c DESC LIMIT 1`
-    )
-    .get(...sf.params);
+  // Most common tool flow (top 2-tool sequence) - needs events joined to sessions
+  let topFlow;
+  if (workspaceRoot) {
+    const ef = eventSessionIdFilter(statusFilter, "e1.session_id");
+    topFlow = db
+      .prepare(
+        `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as c
+         FROM events e1
+         JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
+           SELECT MIN(e3.id) FROM events e3
+           WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
+         )
+         JOIN sessions s ON s.id = e1.session_id
+         WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${ef.clause}${wf.clause}
+         GROUP BY e1.tool_name, e2.tool_name
+         ORDER BY c DESC LIMIT 1`
+      )
+      .get(...ef.params, ...wf.params);
+  } else {
+    const ef = eventSessionIdFilter(statusFilter, "e1.session_id");
+    topFlow = db
+      .prepare(
+        `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as c
+         FROM events e1
+         JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
+           SELECT MIN(e3.id) FROM events e3
+           WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
+         )
+         WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${ef.clause}
+         GROUP BY e1.tool_name, e2.tool_name
+         ORDER BY c DESC LIMIT 1`
+      )
+      .get(...ef.params);
+  }
 
   return {
     totalSessions,
@@ -195,65 +309,125 @@ function getWorkflowStats(statusFilter) {
   };
 }
 
-function getOrchestrationData(statusFilter) {
+function getOrchestrationData(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Count sessions
-  const sessionCount = db
-    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
-    .get(...ss.params).c;
+  let sessionCount, mainCount, subagentTypes, edges, outcomes, compactions, totalCompactions, sessionsWithCompactions;
 
-  // Main agents count
-  const mainCount = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE type = 'main'${sf.clause}`)
-    .get(...sf.params).c;
+  if (workspaceRoot) {
+    // Count sessions - scoped to workspace
+    sessionCount = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .get(...ss.params, ...wf.params).c;
 
-  // Subagent types with counts and parent info
-  const subagentTypes = db
-    .prepare(
-      `SELECT subagent_type, COUNT(*) as count,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
-       FROM agents WHERE type = 'subagent' AND subagent_type IS NOT NULL${sf.clause}
-       GROUP BY subagent_type ORDER BY count DESC`
-    )
-    .all(...sf.params);
+    // Main agents - join sessions for workspace filter
+    mainCount = db
+      .prepare(`SELECT COUNT(*) as c FROM agents a JOIN sessions s ON s.id = a.session_id WHERE a.type = 'main'${sf.clause}${wf.clause}`)
+      .get(...sf.params, ...wf.params).c;
 
-  // Edges: parent_subagent_type -> child_subagent_type with frequency
-  const edges = db
-    .prepare(
-      `SELECT
-        COALESCE(p.subagent_type, 'main') as source,
-        a.subagent_type as target,
-        COUNT(*) as weight
-       FROM agents a
-       LEFT JOIN agents p ON a.parent_agent_id = p.id
-       WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${sf.clause.replace("session_id", "a.session_id")}
-       GROUP BY source, target
-       ORDER BY weight DESC`
-    )
-    .all(...sf.params);
+    // Subagent types
+    subagentTypes = db
+      .prepare(
+        `SELECT a.subagent_type, COUNT(*) as count,
+          SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN a.status = 'error' THEN 1 ELSE 0 END) as errors
+         FROM agents a JOIN sessions s ON s.id = a.session_id
+         WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${sf.clause}${wf.clause}
+         GROUP BY a.subagent_type ORDER BY count DESC`
+      )
+      .all(...sf.params, ...wf.params);
 
-  // Outcome counts
-  const outcomes = db
-    .prepare(
-      `SELECT status, COUNT(*) as count FROM agents
-       WHERE status IN ('completed', 'error')${sf.clause}
-       GROUP BY status`
-    )
-    .all(...sf.params);
+    // Edges via joined agents
+    const naf = namedAgentSessionIdFilter(statusFilter, "a");
+    edges = db
+      .prepare(
+        `SELECT
+          COALESCE(p.subagent_type, 'main') as source,
+          a.subagent_type as target,
+          COUNT(*) as weight
+         FROM agents a
+         LEFT JOIN agents p ON a.parent_agent_id = p.id
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${naf.clause}${wf.clause}
+         GROUP BY source, target
+         ORDER BY weight DESC`
+      )
+      .all(...naf.params, ...wf.params);
 
-  // Compaction agents (context compressions per session)
-  const compactions = db
-    .prepare(
-      `SELECT session_id, COUNT(*) as count
-       FROM agents WHERE subagent_type = 'compaction'${sf.clause}
-       GROUP BY session_id`
-    )
-    .all(...sf.params);
-  const totalCompactions = compactions.reduce((s, r) => s + r.count, 0);
-  const sessionsWithCompactions = compactions.length;
+    // Outcomes
+    outcomes = db
+      .prepare(
+        `SELECT a.status, COUNT(*) as count FROM agents a
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.status IN ('completed', 'error')${sf.clause}${wf.clause}
+         GROUP BY a.status`
+      )
+      .all(...sf.params, ...wf.params);
+
+    // Compactions per session
+    compactions = db
+      .prepare(
+        `SELECT a.session_id, COUNT(*) as count
+         FROM agents a JOIN sessions s ON s.id = a.session_id
+         WHERE a.subagent_type = 'compaction'${sf.clause}${wf.clause}
+         GROUP BY a.session_id`
+      )
+      .all(...sf.params, ...wf.params);
+  } else {
+    sessionCount = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
+      .get(...ss.params).c;
+
+    mainCount = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE type = 'main'${sf.clause}`)
+      .get(...sf.params).c;
+
+    subagentTypes = db
+      .prepare(
+        `SELECT subagent_type, COUNT(*) as count,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+         FROM agents WHERE type = 'subagent' AND subagent_type IS NOT NULL${sf.clause}
+         GROUP BY subagent_type ORDER BY count DESC`
+      )
+      .all(...sf.params);
+
+    const naf = namedAgentSessionIdFilter(statusFilter, "a");
+    edges = db
+      .prepare(
+        `SELECT
+          COALESCE(p.subagent_type, 'main') as source,
+          a.subagent_type as target,
+          COUNT(*) as weight
+         FROM agents a
+         LEFT JOIN agents p ON a.parent_agent_id = p.id
+         WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${naf.clause}
+         GROUP BY source, target
+         ORDER BY weight DESC`
+      )
+      .all(...naf.params);
+
+    outcomes = db
+      .prepare(
+        `SELECT status, COUNT(*) as count FROM agents
+         WHERE status IN ('completed', 'error')${sf.clause}
+         GROUP BY status`
+      )
+      .all(...sf.params);
+
+    compactions = db
+      .prepare(
+        `SELECT session_id, COUNT(*) as count
+         FROM agents WHERE subagent_type = 'compaction'${sf.clause}
+         GROUP BY session_id`
+      )
+      .all(...sf.params);
+  }
+
+  totalCompactions = compactions.reduce((s, r) => s + r.count, 0);
+  sessionsWithCompactions = compactions.length;
 
   return {
     sessionCount,
@@ -265,81 +439,163 @@ function getOrchestrationData(statusFilter) {
   };
 }
 
-function getToolFlowData(statusFilter) {
-  const sf = sessionIdFilter(statusFilter);
+function getToolFlowData(statusFilter, workspaceRoot) {
+  const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Tool-to-tool transitions (next tool in same session)
-  const transitions = db
-    .prepare(
-      `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as value
-       FROM events e1
-       JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
-         SELECT MIN(e3.id) FROM events e3
-         WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
-       )
-       WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${sf.clause.replace("session_id", "e1.session_id")}
-       GROUP BY e1.tool_name, e2.tool_name
-       ORDER BY value DESC
-       LIMIT 50`
-    )
-    .all(...sf.params);
+  let transitions, toolCounts;
 
-  // Tool counts for sizing nodes
-  const toolCounts = db
-    .prepare(
-      `SELECT tool_name, COUNT(*) as count FROM events
-       WHERE tool_name IS NOT NULL${sf.clause}
-       GROUP BY tool_name ORDER BY count DESC LIMIT 15`
-    )
-    .all(...sf.params);
+  if (workspaceRoot) {
+    // Tool-to-tool transitions - join events to sessions for workspace filter
+    transitions = db
+      .prepare(
+        `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as value
+         FROM events e1
+         JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
+           SELECT MIN(e3.id) FROM events e3
+           WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
+         )
+         JOIN sessions s ON s.id = e1.session_id
+         WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${ss.clause}${wf.clause}
+         GROUP BY e1.tool_name, e2.tool_name
+         ORDER BY value DESC
+         LIMIT 50`
+      )
+      .all(...ss.params, ...wf.params);
+
+    // Tool counts
+    toolCounts = db
+      .prepare(
+        `SELECT e.tool_name, COUNT(*) as count FROM events e
+         JOIN sessions s ON s.id = e.session_id
+         WHERE e.tool_name IS NOT NULL${ss.clause}${wf.clause}
+         GROUP BY e.tool_name ORDER BY count DESC LIMIT 15`
+      )
+      .all(...ss.params, ...wf.params);
+  } else {
+    const ef = eventSessionIdFilter(statusFilter, "e1.session_id");
+    const efNoAlias = eventSessionIdFilter(statusFilter);
+
+    transitions = db
+      .prepare(
+        `SELECT e1.tool_name as source, e2.tool_name as target, COUNT(*) as value
+         FROM events e1
+         JOIN events e2 ON e2.session_id = e1.session_id AND e2.id = (
+           SELECT MIN(e3.id) FROM events e3
+           WHERE e3.session_id = e1.session_id AND e3.id > e1.id AND e3.tool_name IS NOT NULL
+         )
+         WHERE e1.tool_name IS NOT NULL AND e2.tool_name IS NOT NULL${ef.clause}
+         GROUP BY e1.tool_name, e2.tool_name
+         ORDER BY value DESC
+         LIMIT 50`
+      )
+      .all(...ef.params);
+
+    toolCounts = db
+      .prepare(
+        `SELECT tool_name, COUNT(*) as count FROM events
+         WHERE tool_name IS NOT NULL${efNoAlias.clause}
+         GROUP BY tool_name ORDER BY count DESC LIMIT 15`
+      )
+      .all(...efNoAlias.params);
+  }
 
   return { transitions, toolCounts };
 }
 
-function getSubagentEffectiveness(statusFilter) {
+function getSubagentEffectiveness(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  const types = db
-    .prepare(
-      `SELECT
-        a.subagent_type,
-        COUNT(*) as total,
-        SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN a.status = 'error' THEN 1 ELSE 0 END) as errors,
-        COUNT(DISTINCT a.session_id) as sessions
-       FROM agents a
-       WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${sf.clause.replace("session_id", "a.session_id")}
-       GROUP BY a.subagent_type
-       ORDER BY total DESC
-       LIMIT 12`
-    )
-    .all(...sf.params);
+  let types;
+
+  if (workspaceRoot) {
+    // Join agents to sessions for workspace filter
+    types = db
+      .prepare(
+        `SELECT
+          a.subagent_type,
+          COUNT(*) as total,
+          SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN a.status = 'error' THEN 1 ELSE 0 END) as errors,
+          COUNT(DISTINCT a.session_id) as sessions
+         FROM agents a
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${sf.clause}${wf.clause}
+         GROUP BY a.subagent_type
+         ORDER BY total DESC
+         LIMIT 12`
+      )
+      .all(...sf.params, ...wf.params);
+  } else {
+    const naf = namedAgentSessionIdFilter(statusFilter, "a");
+    types = db
+      .prepare(
+        `SELECT
+          a.subagent_type,
+          COUNT(*) as total,
+          SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN a.status = 'error' THEN 1 ELSE 0 END) as errors,
+          COUNT(DISTINCT a.session_id) as sessions
+         FROM agents a
+         WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${naf.clause}
+         GROUP BY a.subagent_type
+         ORDER BY total DESC
+         LIMIT 12`
+      )
+      .all(...naf.params);
+  }
 
   // Get token usage per subagent type (approximate via session token totals)
   // Also get average duration per type
   const withMetrics = types.map((t) => {
-    const durRow = db
-      .prepare(
-        `SELECT AVG(
-          CASE WHEN ended_at IS NOT NULL THEN
-            (julianday(ended_at) - julianday(started_at)) * 86400
-          ELSE NULL END
-        ) as avg_duration
-        FROM agents WHERE subagent_type = ? AND type = 'subagent'${sf.clause}`
-      )
-      .get(t.subagent_type, ...sf.params);
+    let durRow, trendRows;
 
-    // Weekly trend: count per day-of-week (Mon–Sun) over last 8 weeks.
-    // SQLite strftime('%w') → 0=Sun, 1=Mon, ..., 6=Sat.
-    // Frontend expects index 0=Mon → 6=Sun, so remap with (dow + 6) % 7.
-    const trendRows = db
-      .prepare(
-        `SELECT CAST(strftime('%w', started_at) AS INTEGER) as dow, COUNT(*) as count
-         FROM agents WHERE subagent_type = ? AND type = 'subagent'
-           AND started_at >= date('now', '-56 days')${sf.clause}
-         GROUP BY dow ORDER BY dow ASC`
-      )
-      .all(t.subagent_type, ...sf.params);
+    if (workspaceRoot) {
+      durRow = db
+        .prepare(
+          `SELECT AVG(
+            CASE WHEN a.ended_at IS NOT NULL THEN
+              (julianday(a.ended_at) - julianday(a.started_at)) * 86400
+            ELSE NULL END
+          ) as avg_duration
+          FROM agents a
+          JOIN sessions s ON s.id = a.session_id
+          WHERE a.subagent_type = ? AND a.type = 'subagent'${sf.clause}${wf.clause}`
+        )
+        .get(t.subagent_type, ...sf.params, ...wf.params);
+
+      trendRows = db
+        .prepare(
+          `SELECT CAST(strftime('%w', a.started_at) AS INTEGER) as dow, COUNT(*) as count
+           FROM agents a
+           JOIN sessions s ON s.id = a.session_id
+           WHERE a.subagent_type = ? AND a.type = 'subagent'
+             AND a.started_at >= date('now', '-56 days')${sf.clause}${wf.clause}
+           GROUP BY dow ORDER BY dow ASC`
+        )
+        .all(t.subagent_type, ...sf.params, ...wf.params);
+    } else {
+      durRow = db
+        .prepare(
+          `SELECT AVG(
+            CASE WHEN ended_at IS NOT NULL THEN
+              (julianday(ended_at) - julianday(started_at)) * 86400
+            ELSE NULL END
+          ) as avg_duration
+          FROM agents WHERE subagent_type = ? AND type = 'subagent'${sf.clause}`
+        )
+        .get(t.subagent_type, ...sf.params);
+
+      trendRows = db
+        .prepare(
+          `SELECT CAST(strftime('%w', started_at) AS INTEGER) as dow, COUNT(*) as count
+           FROM agents WHERE subagent_type = ? AND type = 'subagent'
+             AND started_at >= date('now', '-56 days')${sf.clause}
+           GROUP BY dow ORDER BY dow ASC`
+        )
+        .all(t.subagent_type, ...sf.params);
+    }
 
     // Build 7-slot array: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
     const trendByDay = [0, 0, 0, 0, 0, 0, 0];
@@ -362,149 +618,382 @@ function getSubagentEffectiveness(statusFilter) {
   return withMetrics;
 }
 
-function getWorkflowPatterns(statusFilter) {
+function getWorkflowPatterns(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Get ordered subagent sequences per session
-  const sessions = db
-    .prepare(
-      `SELECT session_id, GROUP_CONCAT(subagent_type, '→') as sequence
-       FROM (
-         SELECT session_id, subagent_type
-         FROM agents
-         WHERE type = 'subagent' AND subagent_type IS NOT NULL${sf.clause}
-         ORDER BY session_id, started_at ASC
-       )
-       GROUP BY session_id
-       HAVING COUNT(*) >= 2`
-    )
-    .all(...sf.params);
+  let sessions, totalSessions;
 
-  // Count pattern frequencies
-  const patternCounts = {};
-  const totalSessions = db
-    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
-    .get(...ss.params).c;
-  for (const row of sessions) {
-    const seq = row.sequence;
-    patternCounts[seq] = (patternCounts[seq] || 0) + 1;
-  }
+  if (workspaceRoot) {
+    // Get ordered subagent sequences per session - join agents to sessions
+    sessions = db
+      .prepare(
+        `SELECT session_id, GROUP_CONCAT(subagent_type, '→') as sequence
+         FROM (
+           SELECT a.session_id, a.subagent_type
+           FROM agents a
+           JOIN sessions s ON s.id = a.session_id
+           WHERE a.type = 'subagent' AND a.subagent_type IS NOT NULL${sf.clause}${wf.clause}
+           ORDER BY a.session_id, a.started_at ASC
+         )
+         GROUP BY session_id
+         HAVING COUNT(*) >= 2`
+      )
+      .all(...sf.params, ...wf.params);
 
-  // Also count 2-step and 3-step sub-patterns
-  for (const row of sessions) {
-    const steps = row.sequence.split("→");
-    // 2-step windows
-    for (let i = 0; i < steps.length - 1; i++) {
-      const sub = steps.slice(i, i + 2).join("→");
-      patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .get(...ss.params, ...wf.params).c;
+
+    // Solo sessions - sessions with no subagents
+    const soloCount = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM sessions s
+         WHERE NOT EXISTS (
+           SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.type = 'subagent'
+         )${ss.clause}${wf.clause}`
+      )
+      .get(...ss.params, ...wf.params).c;
+
+    var _soloCount = soloCount;
+    var _totalSessions = totalSessions;
+    var _sessions = sessions;
+
+    // Count pattern frequencies
+    const patternCounts = {};
+    for (const row of _sessions) {
+      const seq = row.sequence;
+      patternCounts[seq] = (patternCounts[seq] || 0) + 1;
     }
-    // 3-step windows
-    for (let i = 0; i < steps.length - 2; i++) {
-      const sub = steps.slice(i, i + 3).join("→");
-      patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+
+    // Also count 2-step and 3-step sub-patterns
+    for (const row of _sessions) {
+      const steps = row.sequence.split("→");
+      for (let i = 0; i < steps.length - 1; i++) {
+        const sub = steps.slice(i, i + 2).join("→");
+        patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+      }
+      for (let i = 0; i < steps.length - 2; i++) {
+        const sub = steps.slice(i, i + 3).join("→");
+        patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+      }
     }
+
+    const sorted = Object.entries(patternCounts)
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([pattern, count]) => ({
+        steps: pattern.split("→"),
+        count,
+        percentage: _totalSessions > 0 ? +((count / _totalSessions) * 100).toFixed(1) : 0,
+      }));
+
+    const soloCountVal = _soloCount;
+
+    return {
+      patterns: sorted,
+      soloSessionCount: soloCountVal,
+      soloPercentage: _totalSessions > 0 ? +((soloCountVal / _totalSessions) * 100).toFixed(1) : 0,
+    };
+  } else {
+    sessions = db
+      .prepare(
+        `SELECT session_id, GROUP_CONCAT(subagent_type, '→') as sequence
+         FROM (
+           SELECT session_id, subagent_type
+           FROM agents
+           WHERE type = 'subagent' AND subagent_type IS NOT NULL${sf.clause}
+           ORDER BY session_id, started_at ASC
+         )
+         GROUP BY session_id
+         HAVING COUNT(*) >= 2`
+      )
+      .all(...sf.params);
+
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
+      .get(...ss.params).c;
+
+    const patternCounts = {};
+    for (const row of sessions) {
+      const seq = row.sequence;
+      patternCounts[seq] = (patternCounts[seq] || 0) + 1;
+    }
+
+    for (const row of sessions) {
+      const steps = row.sequence.split("→");
+      for (let i = 0; i < steps.length - 1; i++) {
+        const sub = steps.slice(i, i + 2).join("→");
+        patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+      }
+      for (let i = 0; i < steps.length - 2; i++) {
+        const sub = steps.slice(i, i + 3).join("→");
+        patternCounts[sub] = (patternCounts[sub] || 0) + 1;
+      }
+    }
+
+    const sorted = Object.entries(patternCounts)
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([pattern, count]) => ({
+        steps: pattern.split("→"),
+        count,
+        percentage: totalSessions > 0 ? +((count / totalSessions) * 100).toFixed(1) : 0,
+      }));
+
+    const soloCount = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM sessions s
+         WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.type = 'subagent')${ss.clause}`
+      )
+      .get(...ss.params).c;
+
+    return {
+      patterns: sorted,
+      soloSessionCount: soloCount,
+      soloPercentage: totalSessions > 0 ? +((soloCount / totalSessions) * 100).toFixed(1) : 0,
+    };
   }
-
-  // Deduplicate: keep only patterns where the full sequence count >= 2-step count
-  // Sort by frequency, take top 10
-  const sorted = Object.entries(patternCounts)
-    .filter(([, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([pattern, count]) => ({
-      steps: pattern.split("→"),
-      count,
-      percentage: totalSessions > 0 ? +((count / totalSessions) * 100).toFixed(1) : 0,
-    }));
-
-  // Also track solo sessions (no subagents)
-  const soloCount = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM sessions s
-       WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.type = 'subagent')${ss.clause}`
-    )
-    .get(...ss.params).c;
-
-  return {
-    patterns: sorted,
-    soloSessionCount: soloCount,
-    soloPercentage: totalSessions > 0 ? +((soloCount / totalSessions) * 100).toFixed(1) : 0,
-  };
 }
 
-function getModelDelegation(statusFilter) {
+function getModelDelegation(statusFilter, workspaceRoot) {
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Model usage for main agents
-  const mainModels = db
+  // Fetch main agent sessions with best-known model resolution
+  // We fetch sessions then apply best-known model per session in JS
+  const mainAgentRows = db
     .prepare(
-      `SELECT s.model, COUNT(DISTINCT a.id) as agent_count, COUNT(DISTINCT s.id) as session_count
+      `SELECT DISTINCT s.id as session_id, a.id as agent_id
        FROM agents a JOIN sessions s ON a.session_id = s.id
-       WHERE a.type = 'main' AND s.model IS NOT NULL${ss.clause}
-       GROUP BY s.model ORDER BY agent_count DESC`
+       WHERE a.type = 'main'${ss.clause}${wf.clause}`
     )
-    .all(...ss.params);
+    .all(...ss.params, ...wf.params);
 
-  // Model usage for subagents (via session model — best approximation)
-  const subagentModels = db
+  // Aggregate main models using best-known model resolution
+  const mainModelMap = {};
+  for (const row of mainAgentRows) {
+    const model = getBestKnownModelForSession(row.session_id) || "unknown";
+    if (!mainModelMap[model]) mainModelMap[model] = { model, agent_count: 0, session_count: new Set() };
+    mainModelMap[model].agent_count++;
+    mainModelMap[model].session_count.add(row.session_id);
+  }
+  const mainModels = Object.values(mainModelMap)
+    .map((m) => ({ model: m.model, agent_count: m.agent_count, session_count: m.session_count.size }))
+    .sort((a, b) => b.agent_count - a.agent_count);
+
+  // Fetch subagent sessions with best-known model resolution
+  const subagentRows = db
     .prepare(
-      `SELECT s.model, COUNT(a.id) as agent_count
+      `SELECT a.id as agent_id, a.session_id
        FROM agents a JOIN sessions s ON a.session_id = s.id
-       WHERE a.type = 'subagent' AND s.model IS NOT NULL${ss.clause}
-       GROUP BY s.model ORDER BY agent_count DESC`
+       WHERE a.type = 'subagent'${ss.clause}${wf.clause}`
     )
-    .all(...ss.params);
+    .all(...ss.params, ...wf.params);
+
+  // Aggregate subagent models using best-known model resolution
+  const subagentModelMap = {};
+  for (const row of subagentRows) {
+    const model = getBestKnownModelForSession(row.session_id) || "unknown";
+    if (!subagentModelMap[model]) subagentModelMap[model] = { model, agent_count: 0 };
+    subagentModelMap[model].agent_count++;
+  }
+  const subagentModels = Object.values(subagentModelMap)
+    .map((m) => ({ model: m.model, agent_count: m.agent_count }))
+    .sort((a, b) => b.agent_count - a.agent_count);
 
   // Token cost per model — filter via session_id on token_usage table
   const sfToken = sessionIdFilter(statusFilter);
-  const tokensByModel = db
-    .prepare(
-      `SELECT model,
+  // When workspace filter is active, we need to join with sessions table to filter token_usage
+  let tokensByModel;
+  if (workspaceRoot) {
+    tokensByModel = db
+      .prepare(
+        `SELECT tu.model,
+        SUM(tu.input_tokens + tu.baseline_input) as input_tokens,
+        SUM(tu.output_tokens + tu.baseline_output) as output_tokens,
+        SUM(tu.cache_read_tokens + tu.baseline_cache_read) as cache_read_tokens,
+        SUM(tu.cache_write_tokens + tu.baseline_cache_write) as cache_write_tokens
+       FROM token_usage tu
+       JOIN sessions s ON s.id = tu.session_id
+       WHERE 1=1${sfToken.clause}${wf.clause}
+       GROUP BY tu.model ORDER BY (input_tokens + output_tokens) DESC`
+      )
+      .all(...sfToken.params, ...wf.params);
+  } else {
+    tokensByModel = db
+      .prepare(
+        `SELECT model,
         SUM(input_tokens + baseline_input) as input_tokens,
         SUM(output_tokens + baseline_output) as output_tokens,
         SUM(cache_read_tokens + baseline_cache_read) as cache_read_tokens,
         SUM(cache_write_tokens + baseline_cache_write) as cache_write_tokens
        FROM token_usage WHERE 1=1${sfToken.clause}
        GROUP BY model ORDER BY (input_tokens + output_tokens) DESC`
-    )
-    .all(...sfToken.params);
+      )
+      .all(...sfToken.params);
+  }
 
   return { mainModels, subagentModels, tokensByModel };
 }
 
-function getErrorPropagation(statusFilter) {
+function getErrorPropagation(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Error count by depth — include both agent-level errors (status = 'error')
-  // AND session-level errors (session status = 'error' mapped to depth 0 for main agent).
-  const errorsByDepth = db
-    .prepare(
-      `WITH RECURSIVE agent_depth AS (
-        SELECT id, session_id, subagent_type, status, 0 as depth
-        FROM agents WHERE parent_agent_id IS NULL
-        UNION ALL
-        SELECT a.id, a.session_id, a.subagent_type, a.status, ad.depth + 1
-        FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id
+  let errorsByDepth, sessionErrorsNotInAgents, errorTypes, eventErrors, sessionsWithErrors, totalSessions;
+
+  if (workspaceRoot) {
+    // Get session IDs that match workspace and status filters
+    const scopedSessionIds = db
+      .prepare(`SELECT id FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .all(...ss.params, ...wf.params)
+      .map(r => r.id);
+
+    if (scopedSessionIds.length > 0) {
+      const placeholders = scopedSessionIds.map(() => '?').join(',');
+      // Error count by depth - filter by scoped session IDs
+      errorsByDepth = db
+        .prepare(
+          `WITH RECURSIVE agent_depth AS (
+            SELECT id, session_id, subagent_type, status, 0 as depth FROM agents
+            WHERE parent_agent_id IS NULL AND session_id IN (${placeholders})
+            UNION ALL
+            SELECT a.id, a.session_id, a.subagent_type, a.status, ad.depth + 1
+            FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id
+            WHERE a.session_id IN (${placeholders})
+          )
+          SELECT depth, COUNT(*) as count FROM agent_depth
+          WHERE status = 'error'${sf.clause}
+          GROUP BY depth ORDER BY depth ASC`
+        )
+        .all(...scopedSessionIds, ...scopedSessionIds, ...sf.params);
+    } else {
+      errorsByDepth = [];
+    }
+
+    // Sessions that ended in error but whose main agent wasn't marked error
+    sessionErrorsNotInAgents = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM sessions s
+         WHERE s.status = 'error'${ss.clause}${wf.clause}
+           AND NOT EXISTS (
+             SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.status = 'error'
+           )`
       )
-      SELECT depth, COUNT(*) as count FROM agent_depth
-      WHERE status = 'error'${sf.clause}
-      GROUP BY depth ORDER BY depth ASC`
-    )
-    .all(...sf.params);
+      .get(...ss.params, ...wf.params).c;
 
-  // Also count sessions that ended in error but whose main agent wasn't marked error.
-  // Map these to depth 0 (session-level errors: quota limits, crashes, etc.)
-  const sessionErrorsNotInAgents = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM sessions s
-       WHERE s.status = 'error'${ss.clause}
-         AND NOT EXISTS (
-           SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.status = 'error'
-         )`
-    )
-    .get(...ss.params).c;
+    // Error-prone subagent types
+    errorTypes = db
+      .prepare(
+        `SELECT a.subagent_type, COUNT(*) as count
+         FROM agents a JOIN sessions s ON s.id = a.session_id
+         WHERE a.status = 'error' AND a.subagent_type IS NOT NULL${sf.clause}${wf.clause}
+         GROUP BY a.subagent_type ORDER BY count DESC LIMIT 5`
+      )
+      .all(...sf.params, ...wf.params);
+
+    // Error events
+    eventErrors = db
+      .prepare(
+        `SELECT e.summary, COUNT(*) as count
+         FROM events e
+         JOIN sessions s ON s.id = e.session_id
+         WHERE ((e.event_type = 'Stop' AND e.summary LIKE 'Error in%')
+            OR e.event_type = 'APIError')${ss.clause}${wf.clause}
+         GROUP BY e.summary ORDER BY count DESC LIMIT 10`
+      )
+      .all(...ss.params, ...wf.params);
+
+    // Sessions with errors
+    sessionsWithErrors = db
+      .prepare(
+        `SELECT COUNT(DISTINCT id) as c FROM (
+          SELECT s.id FROM sessions s WHERE s.status = 'error'${ss.clause}${wf.clause}
+          UNION
+          SELECT DISTINCT a.session_id as id FROM agents a
+          JOIN sessions s ON s.id = a.session_id
+          WHERE a.status = 'error'${sf.clause}${wf.clause}
+          UNION
+          SELECT DISTINCT e.session_id as id FROM events e
+          JOIN sessions s ON s.id = e.session_id
+          WHERE ((e.event_type = 'Stop' AND e.summary LIKE 'Error in%')
+             OR e.event_type = 'APIError')${ss.clause}${wf.clause}
+        )`
+      )
+      .get(...ss.params, ...wf.params, ...sf.params, ...wf.params, ...ss.params, ...wf.params).c;
+
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .get(...ss.params, ...wf.params).c;
+  } else {
+    errorsByDepth = db
+      .prepare(
+        `WITH RECURSIVE agent_depth AS (
+          SELECT id, session_id, subagent_type, status, 0 as depth
+          FROM agents WHERE parent_agent_id IS NULL
+          UNION ALL
+          SELECT a.id, a.session_id, a.subagent_type, a.status, ad.depth + 1
+          FROM agents a JOIN agent_depth ad ON a.parent_agent_id = ad.id
+        )
+        SELECT depth, COUNT(*) as count FROM agent_depth
+        WHERE status = 'error'${sf.clause}
+        GROUP BY depth ORDER BY depth ASC`
+      )
+      .all(...sf.params);
+
+    sessionErrorsNotInAgents = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM sessions s
+         WHERE s.status = 'error'${ss.clause}
+           AND NOT EXISTS (
+             SELECT 1 FROM agents a WHERE a.session_id = s.id AND a.status = 'error'
+           )`
+      )
+      .get(...ss.params).c;
+
+    errorTypes = db
+      .prepare(
+        `SELECT subagent_type, COUNT(*) as count
+         FROM agents WHERE status = 'error' AND subagent_type IS NOT NULL${sf.clause}
+         GROUP BY subagent_type ORDER BY count DESC LIMIT 5`
+      )
+      .all(...sf.params);
+
+    const ef = eventSessionIdFilter(statusFilter, "e.session_id");
+    const efNoAlias = eventSessionIdFilter(statusFilter);
+    eventErrors = db
+      .prepare(
+        `SELECT e.summary, COUNT(*) as count
+         FROM events e
+         WHERE ((e.event_type = 'Stop' AND e.summary LIKE 'Error in%')
+            OR e.event_type = 'APIError')${ef.clause}
+         GROUP BY e.summary ORDER BY count DESC LIMIT 10`
+      )
+      .all(...ef.params);
+
+    sessionsWithErrors = db
+      .prepare(
+        `SELECT COUNT(DISTINCT id) as c FROM (
+          SELECT s.id FROM sessions s WHERE s.status = 'error'${ss.clause}
+          UNION
+          SELECT DISTINCT session_id as id FROM agents WHERE status = 'error'${sf.clause}
+          UNION
+          SELECT DISTINCT session_id as id FROM events
+          WHERE ((event_type = 'Stop' AND summary LIKE 'Error in%')
+             OR event_type = 'APIError')${efNoAlias.clause}
+        )`
+      )
+      .get(...ss.params, ...sf.params, ...efNoAlias.params).c;
+
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
+      .get(...ss.params).c;
+  }
 
   if (sessionErrorsNotInAgents > 0) {
     const existing = errorsByDepth.find((d) => d.depth === 0);
@@ -514,44 +1003,6 @@ function getErrorPropagation(statusFilter) {
       errorsByDepth.unshift({ depth: 0, count: sessionErrorsNotInAgents });
     }
   }
-
-  // Error-prone subagent types — from agent errors + from error events on subagents
-  const errorTypes = db
-    .prepare(
-      `SELECT subagent_type, COUNT(*) as count
-       FROM agents WHERE status = 'error' AND subagent_type IS NOT NULL${sf.clause}
-       GROUP BY subagent_type ORDER BY count DESC LIMIT 5`
-    )
-    .all(...sf.params);
-
-  // Also capture error events (Stop with error summary, API errors from transcripts)
-  const eventErrors = db
-    .prepare(
-      `SELECT e.summary, COUNT(*) as count
-       FROM events e
-       WHERE ((e.event_type = 'Stop' AND e.summary LIKE 'Error in%')
-          OR e.event_type = 'APIError')${sf.clause.replace("session_id", "e.session_id")}
-       GROUP BY e.summary ORDER BY count DESC LIMIT 10`
-    )
-    .all(...sf.params);
-
-  // Error rate per session (sessions with error status OR sessions with error events)
-  const sessionsWithErrors = db
-    .prepare(
-      `SELECT COUNT(DISTINCT id) as c FROM (
-        SELECT s.id FROM sessions s WHERE s.status = 'error'${ss.clause}
-        UNION
-        SELECT DISTINCT session_id as id FROM agents WHERE status = 'error'${sf.clause}
-        UNION
-        SELECT DISTINCT session_id as id FROM events
-        WHERE ((event_type = 'Stop' AND summary LIKE 'Error in%')
-           OR event_type = 'APIError')${sf.clause}
-      )`
-    )
-    .get(...ss.params, ...sf.params, ...sf.params).c;
-  const totalSessions = db
-    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
-    .get(...ss.params).c;
 
   return {
     byDepth: errorsByDepth,
@@ -563,24 +1014,43 @@ function getErrorPropagation(statusFilter) {
   };
 }
 
-function getConcurrencyData(statusFilter) {
+function getConcurrencyData(statusFilter, workspaceRoot) {
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
   // For aggregate: average agent types per position in session timeline
   // Get agent start/end as fraction of session duration per session
-  const lanes = db
-    .prepare(
-      `SELECT
-        a.id, a.name, a.type, a.subagent_type, a.status,
-        a.started_at, a.ended_at, a.session_id,
-        s.started_at as session_start, s.ended_at as session_end
-       FROM agents a
-       JOIN sessions s ON a.session_id = s.id
-       WHERE s.ended_at IS NOT NULL${ss.clause}
-       ORDER BY a.started_at ASC
-       LIMIT 2000`
-    )
-    .all(...ss.params);
+  let lanes;
+
+  if (workspaceRoot) {
+    lanes = db
+      .prepare(
+        `SELECT
+          a.id, a.name, a.type, a.subagent_type, a.status,
+          a.started_at, a.ended_at, a.session_id,
+          s.started_at as session_start, s.ended_at as session_end
+         FROM agents a
+         JOIN sessions s ON a.session_id = s.id
+         WHERE s.ended_at IS NOT NULL${ss.clause}${wf.clause}
+         ORDER BY a.started_at ASC
+         LIMIT 2000`
+      )
+      .all(...ss.params, ...wf.params);
+  } else {
+    lanes = db
+      .prepare(
+        `SELECT
+          a.id, a.name, a.type, a.subagent_type, a.status,
+          a.started_at, a.ended_at, a.session_id,
+          s.started_at as session_start, s.ended_at as session_end
+         FROM agents a
+         JOIN sessions s ON a.session_id = s.id
+         WHERE s.ended_at IS NOT NULL${ss.clause}
+         ORDER BY a.started_at ASC
+         LIMIT 2000`
+      )
+      .all(...ss.params);
+  }
 
   // Build aggregate: for each subagent_type, average start% and end%
   const typeAgg = {};
@@ -615,8 +1085,9 @@ function getConcurrencyData(statusFilter) {
   return { aggregateLanes };
 }
 
-function getSessionComplexity(statusFilter) {
+function getSessionComplexity(statusFilter, workspaceRoot) {
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
   const rows = db
     .prepare(
@@ -626,12 +1097,12 @@ function getSessionComplexity(statusFilter) {
         SUM(CASE WHEN a.type = 'subagent' THEN 1 ELSE 0 END) as subagent_count
        FROM sessions s
        LEFT JOIN agents a ON a.session_id = s.id
-       WHERE 1=1${ss.clause}
+       WHERE 1=1${ss.clause}${wf.clause}
        GROUP BY s.id
        ORDER BY s.started_at DESC
        LIMIT 200`
     )
-    .all(...ss.params);
+    .all(...ss.params, ...wf.params);
 
   const sessions = rows.map((r) => {
     const dur = durationSec(r);
@@ -652,49 +1123,91 @@ function getSessionComplexity(statusFilter) {
       agentCount: r.agent_count,
       subagentCount: r.subagent_count,
       totalTokens: tokens?.total || 0,
-      model: r.model,
+      model: getBestKnownModelForSession(r.id) || r.model,
     };
   });
 
   return sessions;
 }
 
-function getCompactionImpact(statusFilter) {
+function getCompactionImpact(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
+  const af = agentSessionIdFilter(statusFilter);
   const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
-  // Total compactions
-  const totalCompactions = db
-    .prepare(`SELECT COUNT(*) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`)
-    .get(...sf.params).c;
+  // When workspace filter is active, join with sessions to filter agents
+  let totalCompactions, recovered, perSession, sessionsWithCompactions, totalSessions;
+  if (workspaceRoot) {
+    // Join with sessions to apply workspace filter
+    totalCompactions = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM agents a
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.subagent_type = 'compaction'${af.clause}${wf.clause}`
+      )
+      .get(...af.params, ...wf.params).c;
 
-  // Total baseline tokens (tokens "recovered" through compaction)
-  const recovered = db
-    .prepare(
-      `SELECT
+    recovered = db
+      .prepare(
+        `SELECT SUM(tu.baseline_input + tu.baseline_output + tu.baseline_cache_read + tu.baseline_cache_write) as total
+         FROM token_usage tu
+         JOIN sessions s ON s.id = tu.session_id
+         WHERE 1=1${ss.clause}${wf.clause}`
+      )
+      .get(...ss.params, ...wf.params);
+
+    perSession = db
+      .prepare(
+        `SELECT a.session_id, COUNT(*) as compactions
+         FROM agents a
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.subagent_type = 'compaction'${af.clause}${wf.clause}
+         GROUP BY a.session_id ORDER BY compactions DESC LIMIT 50`
+      )
+      .all(...af.params, ...wf.params);
+
+    sessionsWithCompactions = db
+      .prepare(
+        `SELECT COUNT(DISTINCT a.session_id) as c FROM agents a
+         JOIN sessions s ON s.id = a.session_id
+         WHERE a.subagent_type = 'compaction'${ss.clause}${wf.clause}`
+      )
+      .get(...ss.params, ...wf.params).c;
+
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}${wf.clause}`)
+      .get(...ss.params, ...wf.params).c;
+  } else {
+    totalCompactions = db
+      .prepare(`SELECT COUNT(*) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`)
+      .get(...sf.params).c;
+
+    recovered = db
+      .prepare(
+        `SELECT
         SUM(baseline_input + baseline_output + baseline_cache_read + baseline_cache_write) as total
        FROM token_usage WHERE 1=1${sf.clause}`
-    )
-    .get(...sf.params);
+      )
+      .get(...sf.params);
 
-  // Compactions per session distribution
-  const perSession = db
-    .prepare(
-      `SELECT session_id, COUNT(*) as compactions
+    perSession = db
+      .prepare(
+        `SELECT session_id, COUNT(*) as compactions
        FROM agents WHERE subagent_type = 'compaction'${sf.clause}
        GROUP BY session_id ORDER BY compactions DESC LIMIT 50`
-    )
-    .all(...sf.params);
+      )
+      .all(...sf.params);
 
-  // Sessions with compactions vs without
-  const sessionsWithCompactions = db
-    .prepare(
-      `SELECT COUNT(DISTINCT session_id) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`
-    )
-    .get(...sf.params).c;
-  const totalSessions = db
-    .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
-    .get(...ss.params).c;
+    sessionsWithCompactions = db
+      .prepare(
+        `SELECT COUNT(DISTINCT session_id) as c FROM agents WHERE subagent_type = 'compaction'${sf.clause}`
+      )
+      .get(...sf.params).c;
+    totalSessions = db
+      .prepare(`SELECT COUNT(*) as c FROM sessions s WHERE 1=1${ss.clause}`)
+      .get(...ss.params).c;
+  }
 
   return {
     totalCompactions,
@@ -705,14 +1218,38 @@ function getCompactionImpact(statusFilter) {
   };
 }
 
-function getAgentCooccurrence(statusFilter) {
+function getAgentCooccurrence(statusFilter, workspaceRoot) {
   const sf = sessionIdFilter(statusFilter);
+  const a1f = namedAgentSessionIdFilter(statusFilter, "a1");
+  const ss = statusClause(statusFilter);
+  const wf = workspaceSessionFilter(workspaceRoot);
 
   // Directed: which agent type runs AFTER which other type in the same session
   // a1 started before a2 → edge a1 → a2 with count
-  const pairs = db
-    .prepare(
-      `SELECT a1.subagent_type as source, a2.subagent_type as target,
+  let pairs;
+  if (workspaceRoot) {
+    pairs = db
+      .prepare(
+        `SELECT a1.subagent_type as source, a2.subagent_type as target,
+              COUNT(*) as weight
+       FROM agents a1
+       JOIN agents a2 ON a1.session_id = a2.session_id
+       JOIN sessions s ON s.id = a1.session_id
+         AND a1.started_at < a2.started_at
+         AND a1.id != a2.id
+       WHERE a1.type = 'subagent' AND a2.type = 'subagent'
+         AND a1.subagent_type IS NOT NULL AND a2.subagent_type IS NOT NULL
+         AND a1.subagent_type != 'compaction' AND a2.subagent_type != 'compaction'${ss.clause}${wf.clause}
+       GROUP BY a1.subagent_type, a2.subagent_type
+       HAVING weight >= 2
+       ORDER BY weight DESC
+       LIMIT 40`
+      )
+      .all(...ss.params, ...wf.params);
+  } else {
+    pairs = db
+      .prepare(
+        `SELECT a1.subagent_type as source, a2.subagent_type as target,
               COUNT(*) as weight
        FROM agents a1
        JOIN agents a2 ON a1.session_id = a2.session_id
@@ -720,13 +1257,14 @@ function getAgentCooccurrence(statusFilter) {
          AND a1.id != a2.id
        WHERE a1.type = 'subagent' AND a2.type = 'subagent'
          AND a1.subagent_type IS NOT NULL AND a2.subagent_type IS NOT NULL
-         AND a1.subagent_type != 'compaction' AND a2.subagent_type != 'compaction'${sf.clause.replace("session_id", "a1.session_id")}
+         AND a1.subagent_type != 'compaction' AND a2.subagent_type != 'compaction'${a1f.clause}
        GROUP BY a1.subagent_type, a2.subagent_type
        HAVING weight >= 2
        ORDER BY weight DESC
        LIMIT 40`
-    )
-    .all(...sf.params);
+      )
+      .all(...a1f.params);
+  }
 
   return pairs;
 }

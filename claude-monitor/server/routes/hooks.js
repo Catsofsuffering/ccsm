@@ -94,6 +94,118 @@ function buildStructuredReturnData(normalized, source) {
   };
 }
 
+/**
+ * Get best-known session model using resolution rule:
+ * 1. Explicit hook/session API model when non-empty and not "unknown"
+ * 2. Transcript-derived token_usage model with largest effective token total
+ * 3. Provider/metadata hints (e.g., "minimax")
+ * 4. Existing non-empty sessions.model
+ * 5. null/unknown only when no evidence exists
+ */
+function getBestKnownModel(sessionId, currentModel) {
+  // Step 1: If current model is non-empty and not "unknown", use it
+  if (currentModel && currentModel.trim() !== "" && currentModel.toLowerCase() !== "unknown") {
+    return currentModel;
+  }
+
+  // Step 2: Find token_usage model with largest effective token total
+  try {
+    const tokenModelRow = db
+      .prepare(
+        `SELECT model, SUM(
+          input_tokens + baseline_input +
+          output_tokens + baseline_output +
+          cache_read_tokens + baseline_cache_read +
+          cache_write_tokens + baseline_cache_write
+        ) as total_tokens
+        FROM token_usage
+        WHERE session_id = ? AND model IS NOT NULL AND model != 'unknown'
+        GROUP BY model
+        ORDER BY total_tokens DESC
+        LIMIT 1`
+      )
+      .get(sessionId);
+
+    if (tokenModelRow && tokenModelRow.model) {
+      return tokenModelRow.model;
+    }
+  } catch {
+    // Ignore errors, proceed to next step
+  }
+
+  // Step 3: Check for provider/metadata hints (e.g., "minimax")
+  try {
+    const session = stmts.getSession.get(sessionId);
+    if (session && session.metadata) {
+      try {
+        const meta = JSON.parse(session.metadata);
+        // Check for provider hints in metadata
+        if (meta && meta.provider) {
+          const provider = String(meta.provider).toLowerCase();
+          if (provider.includes("minimax")) {
+            return "minimax";
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  } catch {
+    // Ignore errors, proceed to next step
+  }
+
+  // Step 4: Return existing model if non-empty (will be handled by caller)
+  return currentModel;
+}
+
+/**
+ * Backfill sessions.model when token_usage provides a concrete model
+ * and the session model is empty or unknown.
+ */
+function backfillSessionModel(sessionId, hookModel) {
+  try {
+    const session = stmts.getSession.get(sessionId);
+    if (!session) return;
+
+    const currentModel = session.model;
+    const bestModel = getBestKnownModel(sessionId, hookModel || currentModel);
+
+    // Only backfill if best model is concrete and different from current
+    if (
+      bestModel &&
+      bestModel.toLowerCase() !== "unknown" &&
+      bestModel !== currentModel
+    ) {
+      stmts.updateSessionModel.run(bestModel, sessionId);
+    }
+  } catch {
+    // Silently ignore backfill errors - session model is informational
+  }
+}
+
+function resolveLogicalSessionId(data) {
+  const rawSessionId = data.session_id;
+  const runId = data.run_id;
+  if (!rawSessionId || !runId) return rawSessionId;
+
+  const existingRawSession = stmts.getSession.get(rawSessionId);
+  if (existingRawSession) return rawSessionId;
+
+  const canonical = stmts.getCanonicalSessionByRunId.get(runId);
+  return canonical?.id || rawSessionId;
+}
+
+function withSourceSessionData(eventData, rawSessionId, sessionId) {
+  if (!rawSessionId) return eventData;
+  const base = eventData && typeof eventData === "object" && !Array.isArray(eventData)
+    ? { ...eventData }
+    : { value: eventData };
+
+  if (!base.source_session_id) base.source_session_id = rawSessionId;
+  if (sessionId && sessionId !== rawSessionId) base.canonical_session_id = sessionId;
+  return base;
+}
+
 function ensureSession(sessionId, data) {
   let session = stmts.getSession.get(sessionId);
   if (!session) {
@@ -158,8 +270,14 @@ function getMainAgent(sessionId) {
 }
 
 const processEvent = db.transaction((hookType, data) => {
-  const sessionId = data.session_id;
+  const rawSessionId = data.session_id;
+  const sessionId = resolveLogicalSessionId(data);
   if (!sessionId) return null;
+  if (rawSessionId !== sessionId) {
+    data = { ...data, session_id: sessionId, source_session_id: rawSessionId };
+  } else if (rawSessionId && data.run_id && !data.source_session_id) {
+    data = { ...data, source_session_id: rawSessionId };
+  }
 
   const session = ensureSession(sessionId, data);
   let mainAgent = getMainAgent(sessionId);
@@ -191,7 +309,7 @@ const processEvent = db.transaction((hookType, data) => {
   let toolName = data.tool_name || null;
   let summary = null;
   let agentId = mainAgentId;
-  let eventData = data;
+  let eventData = withSourceSessionData(data, rawSessionId, sessionId);
 
   switch (hookType) {
     case "PreToolUse": {
@@ -253,7 +371,11 @@ const processEvent = db.transaction((hookType, data) => {
         agentId = associatedAgentId;
         eventType = "TeamReturn";
         summary = returnSummary;
-        eventData = buildStructuredReturnData(normalized, hookType);
+        eventData = withSourceSessionData(
+          buildStructuredReturnData(normalized, hookType),
+          rawSessionId,
+          sessionId
+        );
       }
 
       // Update main agent status to "working" — but only when main is the likely
@@ -305,7 +427,11 @@ const processEvent = db.transaction((hookType, data) => {
         agentId = associatedAgentId;
         eventType = "TeamReturn";
         summary = returnSummary;
-        eventData = buildStructuredReturnData(normalized, hookType);
+        eventData = withSourceSessionData(
+          buildStructuredReturnData(normalized, hookType),
+          rawSessionId,
+          sessionId
+        );
       }
       break;
     }
@@ -406,9 +532,10 @@ const processEvent = db.transaction((hookType, data) => {
             output: returnOutput,
             source: "SubagentStop",
           };
+          const structuredReturnData = withSourceSessionData(returnData, rawSessionId, sessionId);
           if (
             !isDuplicateEvent(sessionId, agentId, "TeamReturn", returnSummary) &&
-            !isDuplicateReturnOutput(sessionId, agentId, returnData)
+            !isDuplicateReturnOutput(sessionId, agentId, structuredReturnData)
           ) {
             stmts.insertEvent.run(
               sessionId,
@@ -416,7 +543,7 @@ const processEvent = db.transaction((hookType, data) => {
               "TeamReturn",
               null,
               returnSummary,
-              JSON.stringify(returnData)
+              JSON.stringify(structuredReturnData)
             );
             broadcast("new_event", {
               session_id: sessionId,
@@ -592,6 +719,9 @@ const processEvent = db.transaction((hookType, data) => {
             tokens.cacheWrite
           );
         }
+
+        // Backfill session model if current model is empty or unknown
+        backfillSessionModel(sessionId, data.model);
       }
 
       // Register API errors from transcript (quota limits, rate limits, overloaded, etc.)

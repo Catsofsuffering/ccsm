@@ -32,6 +32,11 @@ Monitor views that represent OpenSpec workflow state SHALL use the active select
 - **THEN** the monitor SHALL include sessions whose `cwd` or `metadata.project_cwd` resolves under the active selected project root
 - **AND** it SHALL exclude sessions from other OpenSpec project roots
 
+#### Scenario: User views Workflow summaries for a selected project
+- **WHEN** the Workflow page loads with an active selected project root
+- **THEN** all top-level Workflow aggregate sections SHALL use the same selected-project session scope
+- **AND** stats, orchestration, tool flow, effectiveness, patterns, model delegation, error propagation, concurrency, complexity, compaction, and cooccurrence SHALL exclude sessions, agents, events, and token usage from other OpenSpec project roots
+
 #### Scenario: OpenSpec is unavailable for the selected project
 - **WHEN** the active project root cannot be read or OpenSpec state loading fails
 - **THEN** project-scoped views SHALL show an explanatory read-only error state

@@ -133,11 +133,18 @@ export interface CostResult {
   breakdown: CostBreakdown[];
 }
 
+export interface SelectableProjectRoot {
+  label: string;
+  root: string;
+  source: string;
+}
+
 export interface OpenSpecWorkspaceInfo {
   workspaceRoot: string | null;
   source: string | null;
   activeWorkspaceRoot: string | null;
   detectedWorkspaceRoots: string[];
+  selectableProjectRoots: SelectableProjectRoot[];
 }
 
 export interface SettingsInfo {
@@ -149,6 +156,7 @@ export interface SettingsInfo {
     entries: number;
     paths: string[];
   };
+  runtime_health?: RuntimeHealth;
 }
 
 export interface WSMessage {
@@ -301,9 +309,10 @@ export interface ControlPlaneWorkerHealth {
   label: string;
   adapterId: string;
   adapterAvailable: boolean;
-  transport: "cli";
+  transport: "cli" | "acp";
   source: "env" | "path" | "unresolved";
   command: string;
+  version: string | null;
   launchReady: boolean;
   health: ControlPlaneWorkerHealthStatus;
   summary: string;
@@ -323,15 +332,58 @@ export interface ControlPlaneWorkerHealth {
 export interface ControlPlaneAdapter {
   id: string;
   runtime: string;
-  transport: "cli";
+  transport: "cli" | "acp";
   available: boolean;
   command: string;
   source: "env" | "path" | "unresolved";
   envKey: string;
+  version: string | null;
+  health: "healthy" | "degraded" | "unavailable";
+  launchReady: boolean;
+  limitations: string[];
   capabilities: {
     stages: string[];
     actions: string[];
   };
+}
+
+export type RuntimeHealthStatus = "healthy" | "degraded" | "unavailable";
+
+export interface RuntimeAdapterHealth {
+  id: string;
+  runtime: string;
+  transport: "cli" | "acp";
+  available: boolean;
+  source: string;
+  command: string;
+  version: string | null;
+  health: RuntimeHealthStatus;
+  launchReady: boolean;
+  limitations: string[];
+}
+
+export interface RuntimeComponentHealth {
+  status: RuntimeHealthStatus;
+  summary: string;
+  [key: string]: unknown;
+}
+
+export interface RuntimeAdapterHealthSection {
+  status: RuntimeHealthStatus;
+  summary: string;
+  items: RuntimeAdapterHealth[];
+}
+
+export interface RuntimeHealth {
+  overall: RuntimeHealthStatus;
+  adapters: RuntimeAdapterHealthSection;
+  hooks: RuntimeComponentHealth & { installed: boolean; path: string; hooks: Record<string, boolean> };
+  database: RuntimeComponentHealth & { path: string; size: number; counts: Record<string, number> };
+  openspec: RuntimeComponentHealth & { workspaceRoot: string | null; source: string | null };
+  websocket: RuntimeComponentHealth & { connections: number };
+  transcriptCache: RuntimeComponentHealth & { entries: number };
+  server: RuntimeComponentHealth & { uptime: number; nodeVersion: string; platform: string };
+  ingestion: RuntimeComponentHealth;
 }
 
 export interface ControlPlaneDispatch {

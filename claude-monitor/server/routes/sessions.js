@@ -8,27 +8,80 @@ const { stmts, db } = require("../db");
 const { broadcast } = require("../websocket");
 const { calculateCost } = require("./pricing");
 const { getSessionOutputs } = require("../lib/session-outputs");
+const { workspaceSessionFilter, getActiveWorkspaceRoot } = require("../lib/openspec-state");
 
 const router = Router();
+
+function getCanonicalSessionByRunId(runId) {
+  if (!runId) return null;
+  return stmts.getCanonicalSessionByRunId.get(runId) || stmts.getSessionByRunId.get(runId);
+}
+
+function filterCanonicalRunSessions(rows) {
+  const seenRunIds = new Set();
+  const filtered = [];
+
+  for (const row of rows) {
+    if (!row.run_id) {
+      filtered.push(row);
+      continue;
+    }
+
+    if (seenRunIds.has(row.run_id)) continue;
+    const canonical = getCanonicalSessionByRunId(row.run_id);
+    if (canonical && canonical.id !== row.id) continue;
+
+    seenRunIds.add(row.run_id);
+    filtered.push(row);
+  }
+
+  return filtered;
+}
 
 router.get("/", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 1000);
   const offset = parseInt(req.query.offset) || 0;
   const status = req.query.status;
   const runId = req.query.run_id;
+  // Default to active workspace when workspaceRoot is not explicitly provided
+  const workspaceRoot = req.query.workspaceRoot || getActiveWorkspaceRoot() || null;
 
   // If run_id is provided, look up the single matching session directly
   if (runId) {
-    const session = stmts.getSessionByRunId.get(runId);
+    const session = getCanonicalSessionByRunId(runId);
     if (!session) {
       return res.json({ sessions: [], limit, offset, run_id: runId });
     }
     return res.json({ sessions: [session], limit, offset, run_id: runId });
   }
 
-  const rows = status
-    ? stmts.listSessionsByStatus.all(status, limit, offset)
-    : stmts.listSessions.all(limit, offset);
+  const wf = workspaceSessionFilter(workspaceRoot);
+  const queryLimit = Math.min(limit + offset + 500, 5000);
+
+  // Build query with workspace filter
+  let rows;
+  if (workspaceRoot) {
+    const baseQuery = status
+      ? `SELECT s.*, COUNT(a.id) as agent_count, s.updated_at as last_activity
+         FROM sessions s LEFT JOIN agents a ON a.session_id = s.id
+         WHERE s.status = ?${wf.clause}
+         GROUP BY s.id ORDER BY s.updated_at DESC LIMIT ?`
+      : `SELECT s.*, COUNT(a.id) as agent_count, s.updated_at as last_activity
+         FROM sessions s LEFT JOIN agents a ON a.session_id = s.id
+         WHERE 1=1${wf.clause}
+         GROUP BY s.id ORDER BY s.updated_at DESC LIMIT ?`;
+
+    const queryParams = status
+      ? [status, ...wf.params, queryLimit]
+      : [...wf.params, queryLimit];
+    rows = db.prepare(baseQuery).all(...queryParams);
+  } else {
+    rows = status
+      ? stmts.listSessionsByStatus.all(status, queryLimit, 0)
+      : stmts.listSessions.all(queryLimit, 0);
+  }
+
+  rows = filterCanonicalRunSessions(rows).slice(offset, offset + limit);
 
   // Bulk-compute costs for all returned sessions in a single pass
   if (rows.length > 0) {

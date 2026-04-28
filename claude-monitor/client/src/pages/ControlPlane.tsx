@@ -600,11 +600,26 @@ export function ControlPlane() {
                   <div key={adapter.id} className="rounded-xl border border-border bg-surface-2 px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-medium text-gray-100">{adapter.id}</div>
-                      <span className={`text-[10px] uppercase tracking-[0.16em] ${adapter.available ? "text-accent" : "text-gray-500"}`}>
-                        {adapter.available ? "available" : "offline"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] uppercase tracking-[0.16em] ${adapter.available ? "text-accent" : "text-gray-500"}`}>
+                          {adapter.available ? "available" : "offline"}
+                        </span>
+                        {adapter.launchReady && (
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-xs px-1.5 py-0.5 rounded-full bg-accent-muted border border-accent/30 text-accent">
+                            launch-ready
+                          </span>
+                        )}
+                        {!adapter.launchReady && adapter.available && (
+                          <span className="text-[10px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full bg-gray-500/10 border border-gray-400/30 text-gray-400">
+                            observe
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-500">{adapter.command}</div>
+                    {adapter.version && (
+                      <div className="mt-1 text-[11px] text-accent font-mono">v{adapter.version}</div>
+                    )}
                     <div className="mt-1 text-[11px] text-gray-500">
                       stages: {adapter.capabilities.stages.join(", ")}
                     </div>
@@ -613,7 +628,13 @@ export function ControlPlane() {
                     </div>
                     <div className="mt-1 text-[11px] text-gray-500">
                       {adapter.runtime} / {adapter.transport} / source: {adapter.source}
+                      {adapter.health && ` / health: ${adapter.health}`}
                     </div>
+                    {adapter.limitations.length > 0 && (
+                      <div className="mt-1 text-[10px] text-gray-500 italic">
+                        {adapter.limitations[0]}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

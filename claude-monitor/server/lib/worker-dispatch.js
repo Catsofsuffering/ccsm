@@ -77,11 +77,30 @@ function createDispatchIntent({
   const adapterAvailable = Boolean(
     dispatch.preferredAdapterId && dispatch.availableAdapters.includes(dispatch.preferredAdapterId)
   );
-  const initialStatus = adapterAvailable
-    ? dispatch.preferredAdapterId === "claude-cli"
-      ? "queued"
-      : "blocked"
-    : "blocked";
+
+  let initialStatus = "blocked";
+  let payloadReason = "No compatible adapter is currently available.";
+  let errorMessage = "No executable adapter is currently available.";
+
+  if (adapterAvailable) {
+    if (dispatch.preferredAdapterId === "claude-cli") {
+      initialStatus = "queued";
+      payloadReason = "Queued for Claude CLI launch.";
+    } else if (dispatch.preferredAdapterId === "claude-agent-acp") {
+      // ACP is detected but not yet validated for dispatch
+      initialStatus = "blocked";
+      payloadReason = "ACP adapter is detected but not yet validated for automated dispatch. Manual launch required.";
+      errorMessage = "ACP dispatch is blocked. The adapter is observe-ready but not yet launch-validated for automated execution.";
+    } else if (dispatch.preferredAdapterId === "codex-cli") {
+      initialStatus = "blocked";
+      payloadReason = "Codex adapter scaffolded; execution launch is not wired yet.";
+      errorMessage = "Codex dispatch is scaffolded but not executable yet.";
+    } else {
+      initialStatus = "blocked";
+      payloadReason = `Adapter '${dispatch.preferredAdapterId}' is not configured for automated dispatch.`;
+      errorMessage = `Adapter '${dispatch.preferredAdapterId}' is not configured for automated dispatch.`;
+    }
+  }
 
   const result = stmts.insertControlPlaneDispatch.run(
     change.name,
@@ -96,18 +115,10 @@ function createDispatchIntent({
     prompt,
     JSON.stringify({
       dispatch,
-      reason: adapterAvailable && dispatch.preferredAdapterId === "claude-cli"
-        ? "Queued for Claude CLI launch."
-        : dispatch.preferredAdapterId === "codex-cli"
-          ? "Codex adapter scaffolded; execution launch is not wired yet."
-          : "No compatible adapter is currently available.",
+      reason: payloadReason,
     }),
     null,
-    initialStatus === "blocked"
-      ? dispatch.preferredAdapterId === "codex-cli" && adapterAvailable
-        ? "Codex dispatch is scaffolded but not executable yet."
-        : "No executable adapter is currently available."
-      : null,
+    initialStatus === "blocked" ? errorMessage : null,
     null,
     null
   );
@@ -170,14 +181,23 @@ function launchClaudeDispatch({ intent, workspaceRoot }) {
 }
 
 function maybeLaunchDispatch({ intent, workspaceRoot }) {
-  if (!intent || intent.adapter_id !== "claude-cli" || intent.status !== "queued") {
+  if (!intent) return intent;
+
+  // Only launch for claude-cli with queued status
+  if (intent.adapter_id === "claude-cli" && intent.status === "queued") {
+    return launchClaudeDispatch({
+      intent: normalizeDispatchRecord(intent),
+      workspaceRoot,
+    });
+  }
+
+  // ACP and other adapters remain blocked unless explicitly launch-ready
+  if (intent.adapter_id !== "claude-cli") {
+    // Intent stays in its current status (typically "blocked")
     return intent;
   }
 
-  return launchClaudeDispatch({
-    intent: normalizeDispatchRecord(intent),
-    workspaceRoot,
-  });
+  return intent;
 }
 
 function listProjectDispatches(projectName, limit = 20) {

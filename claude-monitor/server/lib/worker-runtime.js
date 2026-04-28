@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { execSync } = require("node:child_process");
 
 function normalizePathEntries() {
   const pathValue = process.env.PATH || process.env.Path || process.env.path || "";
@@ -52,10 +53,107 @@ function detectCliAdapter({
     command: resolvedBinary || commandNames[0],
     source: explicit ? "env" : available ? "path" : "unresolved",
     envKey,
+    version: null,
     capabilities,
+    health: available ? "healthy" : "unavailable",
+    launchReady: available && id === "claude-cli",
+    limitations: available ? [] : [`Binary not found via ${envKey} or PATH`],
   };
 }
 
+/**
+ * Detect ACP version from binary via --version.
+ * Returns { version, warning } — warning is set when version cannot be read.
+ */
+function detectAcpVersion(command) {
+  try {
+    const raw = execSync(`"${command}" --version`, {
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (raw) return { version: raw, warning: null };
+    return { version: null, warning: "ACP --version returned empty output" };
+  } catch (err) {
+    return {
+      version: null,
+      warning: `Cannot read ACP version: ${err.message}`,
+    };
+  }
+}
+
+// Cache for ACP version to avoid repeated execSync calls
+let _acpVersionCache = null;
+
+function detectAcpAdapter() {
+  const envPath = process.env.CCSM_CLAUDE_AGENT_ACP_PATH;
+  const explicit = envPath
+    ? (fs.existsSync(path.resolve(envPath)) ? path.resolve(envPath) : null)
+    : null;
+  const commandNames = process.platform === "win32"
+    ? ["claude-agent-acp.exe", "claude-agent-acp.cmd", "claude-agent-acp"]
+    : ["claude-agent-acp"];
+  const resolvedBinary = explicit || resolveFromPath(commandNames);
+  const available = Boolean(resolvedBinary);
+  const source = explicit ? "env" : available ? "path" : "unresolved";
+
+  let version = null;
+  let warnings = [];
+
+  if (available && resolvedBinary) {
+    if (_acpVersionCache !== null) {
+      const cached = _acpVersionCache;
+      version = cached.version;
+      if (cached.warning) warnings.push(cached.warning);
+    } else {
+      const detected = detectAcpVersion(resolvedBinary);
+      _acpVersionCache = detected;
+      version = detected.version;
+      if (detected.warning) warnings.push(detected.warning);
+    }
+  }
+
+  const limitations = [];
+  if (!available) {
+    limitations.push("claude-agent-acp not found via CCSM_CLAUDE_AGENT_ACP_PATH or PATH");
+  }
+  if (available && !version) {
+    limitations.push("ACP version could not be determined; support status is unverified");
+  }
+  for (const w of warnings) {
+    limitations.push(w);
+  }
+
+  return {
+    id: "claude-agent-acp",
+    runtime: "claude",
+    transport: "acp",
+    available,
+    command: resolvedBinary || "claude-agent-acp",
+    source,
+    envKey: "CCSM_CLAUDE_AGENT_ACP_PATH",
+    version,
+    capabilities: {
+      stages: ["tasks", "implementing", "complete"],
+      actions: ["replay"],
+    },
+    health: available ? (version ? "healthy" : "degraded") : "unavailable",
+    launchReady: false,
+    limitations,
+  };
+}
+
+/**
+ * Clear cached ACP version so the next call to listWorkerAdapters re-detects.
+ */
+function clearAcpVersionCache() {
+  _acpVersionCache = null;
+}
+
+/**
+ * List all known worker adapters, including optional ACP when detected.
+ * Preserves backward compatibility: codex-cli and claude-cli always appear.
+ */
 function listWorkerAdapters() {
   return [
     detectCliAdapter({
@@ -78,7 +176,40 @@ function listWorkerAdapters() {
         actions: ["replay"],
       },
     }),
+    detectAcpAdapter(),
   ];
+}
+
+/**
+ * Return only the adapters that are currently available.
+ */
+function listAvailableAdapters() {
+  return listWorkerAdapters().filter((a) => a.available);
+}
+
+/**
+ * Get a single adapter by id. Returns null if not found.
+ */
+function getAdapter(id) {
+  return listWorkerAdapters().find((a) => a.id === id) || null;
+}
+
+/**
+ * Build a summary of adapter health suitable for diagnostics payloads.
+ */
+function summarizeAdapterHealth() {
+  return listWorkerAdapters().map((a) => ({
+    id: a.id,
+    runtime: a.runtime,
+    transport: a.transport,
+    available: a.available,
+    source: a.source,
+    command: a.command,
+    version: a.version,
+    health: a.health,
+    launchReady: a.launchReady,
+    limitations: a.limitations,
+  }));
 }
 
 function selectAdapterForNode({ change, nodeId, actionType, adapters }) {
@@ -114,6 +245,21 @@ function selectAdapterForNode({ change, nodeId, actionType, adapters }) {
     reason = "Pre-implementation work prefers Codex for orchestration-friendly task shaping.";
   }
 
+  // Even when Claude runtime is preferred, claude-cli remains the default adapter.
+  // ACP is only selected when explicitly gated.
+  if (preferred && preferred.id === "claude-agent-acp" && actionType === "replay") {
+    if (!preferred.launchReady) {
+      // Fall back to claude-cli if available
+      const cli = allAdapters.find((a) => a.id === "claude-cli");
+      if (cli && cli.available) {
+        preferred = cli;
+        reason = "Claude execution prefers the stable claude-cli adapter. ACP is detected but not yet launch-ready for default dispatch.";
+      } else {
+        reason = "ACP is the only Claude adapter found but is not launch-ready. Dispatch will be blocked.";
+      }
+    }
+  }
+
   return {
     preferredAdapterId: preferred?.id || null,
     preferredRuntime: preferred?.runtime || null,
@@ -125,5 +271,10 @@ function selectAdapterForNode({ change, nodeId, actionType, adapters }) {
 
 module.exports = {
   listWorkerAdapters,
+  listAvailableAdapters,
+  getAdapter,
+  summarizeAdapterHealth,
   selectAdapterForNode,
+  clearAcpVersionCache,
+  detectAcpAdapter,
 };

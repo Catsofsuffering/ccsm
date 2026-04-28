@@ -1,6 +1,6 @@
 import ansis from 'ansis'
 import { getCanonicalHomeDir, getHostHomeDir } from '../utils/host'
-import { configureClaudeMonitorHooks, prepareClaudeMonitorRuntime, prepareCodexMonitorRuntime, restartClaudeMonitor, startClaudeMonitor } from '../utils/claude-monitor'
+import { configureClaudeMonitorHooks, prepareClaudeMonitorRuntime, prepareCodexMonitorRuntime, restartClaudeMonitor, shutdownClaudeMonitor, startClaudeMonitor } from '../utils/claude-monitor'
 import { ensureCodexWorkspaceTrust } from '../utils/codex-config'
 
 export async function installMonitorRuntime(): Promise<void> {
@@ -47,4 +47,21 @@ export async function restartMonitor(): Promise<void> {
   console.log(ansis.green(`  Claude monitor restarted`))
   console.log(ansis.cyan(`    ${result.url}`))
   console.log(ansis.gray(`    monitor: ${result.monitorDir}`))
+}
+
+export async function shutdownMonitor(): Promise<void> {
+  const result = await shutdownClaudeMonitor({ canonicalHomeDir: getCanonicalHomeDir() })
+
+  console.log()
+  if (result.reason === 'not-running') {
+    console.log(ansis.yellow(`  Claude monitor is not running`))
+  }
+  else if (result.reason === 'stopped') {
+    console.log(ansis.green(`  Claude monitor stopped`))
+  }
+  else if (result.reason === 'unknown-service') {
+    const message = result.message || 'Claude monitor shutdown failed.'
+    console.log(ansis.red(`  ${message}`))
+    throw new Error(message)
+  }
 }

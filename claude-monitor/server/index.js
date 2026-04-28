@@ -24,6 +24,7 @@ const settingsRouter = require("./routes/settings");
 const workflowsRouter = require("./routes/workflows");
 const openspecRouter = require("./routes/openspec");
 const controlPlaneRouter = require("./routes/control-plane");
+const acpRouter = require("./routes/acp");
 
 function evictTranscriptCacheForSession(cleanupDb, transcriptCache, sessionId) {
   const tpRow = cleanupDb.db
@@ -113,6 +114,7 @@ function createApp() {
   app.use("/api/workflows", workflowsRouter);
   app.use("/api/openspec", openspecRouter);
   app.use("/api/control-plane", controlPlaneRouter);
+  app.use("/api/acp", acpRouter);
   app.get("/api/openapi.json", (_req, res) => {
     res.json(openApiSpec);
   });

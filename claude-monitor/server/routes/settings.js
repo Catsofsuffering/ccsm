@@ -12,9 +12,11 @@ const { getConnectionCount } = require("../websocket");
 const { transcriptCache } = require("./hooks");
 const {
   getWorkspaceSelection,
+  getSelectableProjectRoots,
   hasOpenSpecWorkspace,
   resolveOpenSpecWorkspaceRoot,
 } = require("../lib/openspec-state");
+const { collectRuntimeHealth } = require("../lib/runtime-health");
 
 const router = Router();
 
@@ -84,10 +86,22 @@ router.get("/info", (_req, res) => {
     source: null,
     activeWorkspaceRoot: null,
     detectedWorkspaceRoots: [],
+    selectableProjectRoots: [],
   };
 
   try {
     openspec = getWorkspaceSelection();
+    openspec.selectableProjectRoots = getSelectableProjectRoots();
+  } catch {}
+
+  let runtime_health = null;
+  try {
+    runtime_health = collectRuntimeHealth({
+      getHookStatus,
+      getTableCounts,
+      getDbSize,
+      transcriptCache,
+    });
   } catch {}
 
   res.json({
@@ -105,6 +119,7 @@ router.get("/info", (_req, res) => {
     },
     openspec,
     transcript_cache: transcriptCache.stats(),
+    runtime_health,
   });
 });
 
@@ -119,9 +134,11 @@ router.post("/openspec-workspace", (req, res) => {
       source: null,
       activeWorkspaceRoot: null,
       detectedWorkspaceRoots: [],
+      selectableProjectRoots: [],
     };
     try {
       openspec = getWorkspaceSelection();
+      openspec.selectableProjectRoots = getSelectableProjectRoots();
     } catch {}
 
     res.json({ ok: true, openspec });
@@ -142,6 +159,7 @@ router.post("/openspec-workspace", (req, res) => {
 
   stmts.upsertSetting.run("openspec.activeWorkspaceRoot", workspaceRoot);
   const openspec = getWorkspaceSelection(workspaceRoot);
+  openspec.selectableProjectRoots = getSelectableProjectRoots();
   res.json({ ok: true, openspec });
 });
 

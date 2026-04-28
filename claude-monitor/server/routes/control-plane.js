@@ -111,7 +111,11 @@ function summarizeWorkerHealth(adapters, sessions, workers, dispatches) {
     const runtimeDispatches = dispatches.filter(
       (dispatch) => dispatch.adapterId === adapter.id || dispatch.runtime === adapter.runtime
     );
-    const launchReady = adapter.available && adapter.id !== "codex-cli";
+    // Use adapter-level launchReady when available, fall back to computed value
+    const launchReady =
+      typeof adapter.launchReady === "boolean"
+        ? adapter.launchReady
+        : adapter.available && adapter.id !== "codex-cli";
     const queuedDispatches = runtimeDispatches.filter((dispatch) => dispatch.status === "queued").length;
     const runningDispatches = runtimeDispatches.filter((dispatch) => dispatch.status === "running").length;
     const blockedDispatches = runtimeDispatches.filter((dispatch) => dispatch.status === "blocked").length;
@@ -147,8 +151,19 @@ function summarizeWorkerHealth(adapters, sessions, workers, dispatches) {
         ? "Queued work is waiting on runtime capacity or operator follow-up."
         : "Shared worker protocol is in place, but this adapter is still scaffolded for launch.";
     } else if (!launchReady) {
-      summary = "Protocol-compatible adapter is detected, but launch wiring remains intentionally deferred.";
+      health = adapter.id === "claude-agent-acp"
+        ? "blocked"
+        : "idle";
+      summary = adapter.id === "claude-agent-acp"
+        ? "ACP adapter is detected but not yet validated for dispatch. Observe-only mode."
+        : "Protocol-compatible adapter is detected, but launch wiring remains intentionally deferred.";
     }
+
+    // Build blocked reason for ACP adapter when not launch-ready
+    const blockedReason =
+      adapter.id === "claude-agent-acp" && !adapter.launchReady && adapter.available
+        ? "ACP dispatch is not yet enabled. The adapter is observe-ready only."
+        : null;
 
     return {
       id: adapter.id,
@@ -159,9 +174,12 @@ function summarizeWorkerHealth(adapters, sessions, workers, dispatches) {
       transport: adapter.transport,
       source: adapter.source,
       command: adapter.command,
+      version: adapter.version || null,
       launchReady,
       health,
       summary,
+      blockedReason,
+      limitations: adapter.limitations || [],
       observedModels: [...new Set(runtimeWorkers.map((worker) => worker.label))].sort(),
       activeSessions,
       totalSessions: runtimeSessions.length,

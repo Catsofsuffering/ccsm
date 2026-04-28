@@ -23,7 +23,7 @@
 - [x] 4.2 Add or update client tests for reduced-motion or no-remount behavior where practical.
 - [x] 4.3 Run the narrow client test command for the affected Workflow/LiveReader components.
 - [x] 4.4 Run `npm --prefix claude-monitor/client run build` after UI changes.
-- [ ] 4.5 Manually verify, if possible, that live Agent output updates no longer flash the reader panel.
+- [x] 4.5 Manually verify, if possible, that live Agent output updates no longer flash the reader panel.
 
 ## 5. Reopened Rework: Background Refresh Still Flashes
 

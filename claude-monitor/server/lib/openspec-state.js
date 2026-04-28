@@ -64,6 +64,39 @@ function getSessionWorkspaceCandidates() {
   }
 }
 
+/**
+ * Extract project_cwd roots from session metadata.
+ * Session metadata is stored as JSON string in the metadata column.
+ */
+function getProjectCwdCandidates() {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT metadata, MAX(updated_at) as last_seen
+         FROM sessions
+         WHERE metadata IS NOT NULL AND TRIM(metadata) != '' AND metadata != 'null'
+         ORDER BY last_seen DESC
+         LIMIT 50`
+      )
+      .all();
+
+    const candidates = [];
+    for (const row of rows) {
+      try {
+        const meta = JSON.parse(row.metadata);
+        if (meta && meta.project_cwd && typeof meta.project_cwd === "string") {
+          candidates.push(...expandCandidateRoots(meta.project_cwd));
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
 function resolveOpenSpecWorkspaceRoot(startPath) {
   if (!startPath || typeof startPath !== "string") return null;
 
@@ -109,7 +142,20 @@ function getDetectedWorkspaceRoots() {
 }
 
 function getWorkspaceSelection(preferredRoot) {
-  const detectedRoots = getDetectedWorkspaceRoots();
+  const cwdCandidates = getSessionWorkspaceCandidates();
+  const projectCwdCandidates = getProjectCwdCandidates();
+  const allSessionCandidates = [...cwdCandidates, ...projectCwdCandidates];
+
+  // Deduplicate and resolve to OpenSpec workspace roots
+  const sessionRoots = Array.from(
+    new Set(
+      allSessionCandidates
+        .map((candidate) => resolveOpenSpecWorkspaceRoot(candidate))
+        .filter(Boolean)
+    )
+  );
+
+  const detectedRoots = sessionRoots;
   const activeWorkspaceRoot = getActiveWorkspaceRoot();
   const orderedCandidates = [
     { root: preferredRoot, source: "preferred" },
@@ -135,6 +181,97 @@ function getWorkspaceSelection(preferredRoot) {
   }
 
   throw new Error("OpenSpec workspace not found");
+}
+
+/**
+ * Get selectable project roots for the client.
+ * Returns array of { label, root, source } for each discoverable OpenSpec workspace.
+ */
+function getSelectableProjectRoots() {
+  const cwdCandidates = getSessionWorkspaceCandidates();
+  const projectCwdCandidates = getProjectCwdCandidates();
+  const allSessionCandidates = [...cwdCandidates, ...projectCwdCandidates];
+
+  // Build candidates list with source tracking
+  const candidateMap = new Map();
+
+  // Add session cwd candidates
+  for (const root of cwdCandidates) {
+    const resolved = resolveOpenSpecWorkspaceRoot(root);
+    if (resolved) {
+      candidateMap.set(resolved, { root: resolved, source: "sessions" });
+    }
+  }
+
+  // Add project_cwd candidates
+  for (const root of projectCwdCandidates) {
+    const resolved = resolveOpenSpecWorkspaceRoot(root);
+    if (resolved && !candidateMap.has(resolved)) {
+      candidateMap.set(resolved, { root: resolved, source: "sessions" });
+    }
+  }
+
+  // Add active workspace
+  const activeWorkspaceRoot = getActiveWorkspaceRoot();
+  if (activeWorkspaceRoot) {
+    candidateMap.set(activeWorkspaceRoot, { root: activeWorkspaceRoot, source: "active" });
+  }
+
+  // Add env-based roots
+  for (const envRoot of [process.env.OPENSPEC_WORKSPACE_ROOT, process.env.CCG_WORKSPACE_ROOT]) {
+    if (envRoot) {
+      const resolved = resolveOpenSpecWorkspaceRoot(envRoot);
+      if (resolved && !candidateMap.has(resolved)) {
+        candidateMap.set(resolved, {
+          root: resolved,
+          source: envRoot === process.env.OPENSPEC_WORKSPACE_ROOT ? "env" : "legacy-env",
+        });
+      }
+    }
+  }
+
+  // Convert to array with label
+  const result = [];
+  for (const [root, { source }] of candidateMap) {
+    const label = path.basename(root) || root;
+    result.push({ label, root, source });
+  }
+
+  return result;
+}
+
+/**
+ * Create a SQL WHERE clause for filtering sessions by workspace root.
+ * Matches sessions where cwd OR metadata.project_cwd resolves under the workspace root.
+ * Returns { clause, params } where clause is either empty or starts with " AND ".
+ */
+function workspaceSessionFilter(workspaceRoot) {
+  if (!workspaceRoot || typeof workspaceRoot !== "string") {
+    return { clause: "", params: [] };
+  }
+
+  // Sessions match if their cwd equals the workspace root OR is a direct child
+  // of the workspace root (separated by / or \).
+  // We use JSON_EXTRACT for metadata since it's stored as JSON string.
+  // In JavaScript strings, '\\%' produces a backslash + percent (2 chars),
+  // which SQLite LIKE interprets as: \ (literal) + % (wildcard) for child paths.
+  // This prevents false positives like "B:\project\test2" matching "B:\project\test".
+  // Using '/%' OR '\\%' instead of '%' enforces that a path separator precedes the wildcard.
+  return {
+    clause: ` AND (
+      s.cwd IS NOT NULL AND (
+        s.cwd = ? OR s.cwd LIKE ? || '/%' OR s.cwd LIKE ? || '\\%'
+      )
+      OR (
+        s.metadata IS NOT NULL AND s.metadata != 'null' AND (
+          JSON_EXTRACT(s.metadata, '$.project_cwd') = ?
+          OR JSON_EXTRACT(s.metadata, '$.project_cwd') LIKE ? || '/%'
+          OR JSON_EXTRACT(s.metadata, '$.project_cwd') LIKE ? || '\\%'
+        )
+      )
+    )`,
+    params: [workspaceRoot, workspaceRoot, workspaceRoot, workspaceRoot, workspaceRoot, workspaceRoot],
+  };
 }
 
 function resolveWorkspaceRoot(preferredRoot) {
@@ -595,13 +732,74 @@ async function buildBoardPayload(workspaceRoot) {
   };
 }
 
+/**
+ * Get the best-known model for a session using the resolution rule:
+ * 1. Explicit sessions.model when non-empty and not "unknown"
+ * 2. token_usage model with largest effective token total
+ * 3. Provider/metadata hints (e.g., "minimax")
+ * 4. null when no evidence exists
+ */
+function getBestKnownModelForSession(sessionId) {
+  try {
+    // Step 1: Check sessions.model
+    const session = db.prepare("SELECT model, metadata FROM sessions WHERE id = ?").get(sessionId);
+    if (session && session.model && session.model.trim() !== "" && session.model.toLowerCase() !== "unknown") {
+      return session.model;
+    }
+
+    // Step 2: Find token_usage model with largest effective token total
+    const tokenModelRow = db
+      .prepare(
+        `SELECT model, SUM(
+          input_tokens + baseline_input +
+          output_tokens + baseline_output +
+          cache_read_tokens + baseline_cache_read +
+          cache_write_tokens + baseline_cache_write
+        ) as total_tokens
+        FROM token_usage
+        WHERE session_id = ? AND model IS NOT NULL AND model != 'unknown'
+        GROUP BY model
+        ORDER BY total_tokens DESC
+        LIMIT 1`
+      )
+      .get(sessionId);
+
+    if (tokenModelRow && tokenModelRow.model) {
+      return tokenModelRow.model;
+    }
+
+    // Step 3: Check for provider/metadata hints
+    if (session && session.metadata) {
+      try {
+        const meta = JSON.parse(session.metadata);
+        if (meta && meta.provider) {
+          const provider = String(meta.provider).toLowerCase();
+          if (provider.includes("minimax")) {
+            return "minimax";
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Step 4: No evidence found
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   OPEN_SPEC_CACHE_TTL_MS,
   buildBoardPayload,
   getActiveWorkspaceRoot,
   getDetectedWorkspaceRoots,
+  getSelectableProjectRoots,
   getWorkspaceSelection,
   hasOpenSpecWorkspace,
   resolveOpenSpecWorkspaceRoot,
   resolveWorkspaceRoot,
+  workspaceSessionFilter,
+  getBestKnownModelForSession,
 };

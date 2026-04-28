@@ -314,7 +314,26 @@ const stmts = {
   updateSessionRunId: db.prepare(
     "UPDATE sessions SET run_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
   ),
+  updateSessionModel: db.prepare(
+    "UPDATE sessions SET model = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
+  ),
   getSessionByRunId: db.prepare("SELECT * FROM sessions WHERE run_id = ?"),
+  getCanonicalSessionByRunId: db.prepare(`
+    SELECT s.*,
+      COALESCE(SUM(CASE WHEN e.event_type != 'SessionStart' THEN 1 ELSE 0 END), 0) as activity_score,
+      COUNT(e.id) as event_count
+    FROM sessions s
+    LEFT JOIN events e ON e.session_id = s.id
+    WHERE s.run_id = ?
+    GROUP BY s.id
+    ORDER BY
+      activity_score DESC,
+      event_count DESC,
+      CASE s.status WHEN 'active' THEN 0 WHEN 'completed' THEN 1 WHEN 'error' THEN 2 ELSE 3 END,
+      s.updated_at DESC,
+      s.started_at ASC
+    LIMIT 1
+  `),
 
   getAgent: db.prepare("SELECT * FROM agents WHERE id = ?"),
   listAgents: db.prepare("SELECT * FROM agents ORDER BY started_at DESC LIMIT ? OFFSET ?"),
