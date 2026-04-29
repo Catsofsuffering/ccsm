@@ -30,6 +30,25 @@ This means the dominant issue is not the model parser. The monitor currently cre
 - `getSessionComplexity()` in Workflow reads directly from `sessions` and does not exclude no-activity startup shells.
 - `getBestKnownModelForSession()` can resolve concrete models from `token_usage`, and live data confirms real sessions are resolvable when they have transcript-derived token rows.
 
+## 2026-04-29 Acceptance Review Findings
+
+Codex acceptance review found that the initial implementation solved default Sessions visibility, diagnostic inclusion, run-id child convergence, historical read-time hiding, and Workflow complexity. The change is not yet archive-ready because Workflow still has incomplete denominator coverage.
+
+- `getModelDelegation()` still selects every main/subagent row and maps sessions with no best-known model to `unknown`, so startup-only shells with auto-created main agents can still inflate Workflow model delegation.
+- Several Workflow sections still use raw `COUNT(*) FROM sessions` denominators, including orchestration, patterns, and compaction. These can disagree with the default visible session set.
+- `stats.totalSessions` uses simplified SQL that is not equivalent to the shared conservative classifier. It can exclude short real sessions that the shared classifier would preserve because of content evidence, transcript evidence, non-default summary, non-startup source, or unparsable event data.
+
+The rework must make Workflow use one consistent "meaningful session" scope for default analytics. A startup-only shell hidden from default Sessions must not contribute to Workflow model attribution, session totals, percentages, or other session-count denominators. A real short session preserved by the classifier must remain counted consistently across Workflow sections.
+
+## 2026-04-29 Packet E Acceptance Review Findings
+
+Packet E added a Workflow meaningful-session helper and applied it to several default Workflow denominators. Codex verification passed the automated checks, but manual acceptance review found two remaining gaps:
+
+- `getWorkflowPatterns()` uses meaningful sessions for `totalSessions` and solo-session denominator, but the pattern query still builds pattern numerators from raw scoped agent sequences. A startup-only shell with subagent rows can still contribute pattern counts while the denominator excludes it.
+- `getWorkflowStats()` uses meaningful sessions for `stats.totalSessions`, but `avgDurationSec` is still computed from raw ended sessions. Startup-only abandoned shells with `ended_at` can still skew the average duration.
+
+The new rework must keep the Packet E helper, but ensure every numerator and denominator touched by this change uses the same meaningful-session scope. Tests must use exact assertions rather than `>= 1` checks, so they prove startup-only rows are excluded rather than merely proving real rows exist.
+
 ## Capabilities
 
 ### New Capabilities

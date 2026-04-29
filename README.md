@@ -120,6 +120,7 @@ ccsm init
 ccsm monitor
 ccsm monitor --detach
 ccsm monitor restart
+ccsm monitor shutdown
 ccsm claude
 ccsm config mcp
 ccsm diagnose-mcp
@@ -132,6 +133,7 @@ What these do:
 - `ccsm init`: install and configure the workflow.
 - `ccsm monitor`: start the local Claude hook monitor.
 - `ccsm monitor restart`: restart the local monitor and bind it to the current workspace.
+- `ccsm monitor shutdown`: stop the local monitor process when it is owned by CCSM.
 - `ccsm claude`: launch Claude through the CCSM dispatcher for Codex handoff scenarios.
 - `ccsm config mcp`: configure MCP tokens.
 - `ccsm diagnose-mcp`: inspect MCP configuration problems.
@@ -140,6 +142,8 @@ What these do:
 ## Monitor
 
 The local monitor is the operational view for the Codex + Claude execution loop. It is designed to make OpenSpec progress and agent activity visible while work is running.
+
+It now supports project selection, selected-project Workflow scoping, startup-only shell filtering, concrete model attribution, Agent Teams live output, and optional ACP/runtime health observations.
 
 Main pages:
 

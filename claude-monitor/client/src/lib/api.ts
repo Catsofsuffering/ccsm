@@ -44,11 +44,12 @@ export const api = {
   },
 
   sessions: {
-    list: (params?: { status?: string; limit?: number; offset?: number }) => {
+    list: (params?: { status?: string; limit?: number; offset?: number; workspaceRoot?: string | null }) => {
       const qs = new URLSearchParams();
       if (params?.status) qs.set("status", params.status);
       if (params?.limit) qs.set("limit", String(params.limit));
       if (params?.offset) qs.set("offset", String(params.offset));
+      if (params?.workspaceRoot) qs.set("workspaceRoot", params.workspaceRoot);
       const q = qs.toString();
       return request<{ sessions: Session[] }>(`/sessions${q ? `?${q}` : ""}`);
     },
@@ -126,14 +127,24 @@ export const api = {
   },
 
   workflows: {
-    get: (status?: string) =>
-      request<WorkflowData>(`/workflows${status && status !== "all" ? `?status=${status}` : ""}`),
+    get: (status?: string, workspaceRoot?: string | null) => {
+      const qs = new URLSearchParams();
+      if (status && status !== "all") qs.set("status", status);
+      if (workspaceRoot) qs.set("workspaceRoot", workspaceRoot);
+      const q = qs.toString();
+      return request<WorkflowData>(`/workflows${q ? `?${q}` : ""}`);
+    },
     session: (id: string) =>
       request<SessionDrillIn>(`/workflows/session/${encodeURIComponent(id)}`),
   },
 
   openspec: {
-    list: () => request<OpenSpecBoardData>("/openspec/changes"),
+    list: (workspaceRoot?: string | null) => {
+      const qs = new URLSearchParams();
+      if (workspaceRoot) qs.set("workspaceRoot", workspaceRoot);
+      const q = qs.toString();
+      return request<OpenSpecBoardData>(`/openspec/changes${q ? `?${q}` : ""}`);
+    },
   },
 
   controlPlane: {

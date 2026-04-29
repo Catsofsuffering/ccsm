@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.31] - 2026-04-29
+
+### Changed
+
+- Added monitor project selection and `ccsm monitor shutdown`, including safer shutdown failures when an unknown process owns the monitor port.
+- Scoped Workflow analytics to the selected project and filtered startup-only shell sessions from default session, model attribution, and Workflow denominators.
+- Improved Agent Teams monitoring with realtime status-driven `ccsm claude exec` progress, better session correlation, and a Workflow live reader focused on meaningful agent output.
+- Added optional ACP runtime adapter, runtime health, and orchestration-control-plane specs so non-hook runtime observations can normalize into the monitor execution model.
+
+---
+
 ## [2.1.30] - 2026-04-27
 
 ### Changed

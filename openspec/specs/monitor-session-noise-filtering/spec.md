@@ -1,5 +1,8 @@
-## ADDED Requirements
+# monitor-session-noise-filtering Specification
 
+## Purpose
+TBD - created by archiving change filter-monitor-startup-noise-sessions. Update Purpose after archive.
+## Requirements
 ### Requirement: Startup-only Claude hook sessions SHALL be hidden from default user views
 The monitor SHALL distinguish startup-only Claude hook shells from sessions with real work activity and SHALL exclude startup-only shells from default user-facing session lists and Workflow analytics.
 
@@ -14,6 +17,24 @@ The monitor SHALL distinguish startup-only Claude hook shells from sessions with
 - **WHEN** a startup-only session would otherwise appear as an unknown zero-token session
 - **THEN** `GET /api/workflows` SHALL exclude it from session complexity
 - **AND** Workflow session totals and model attribution denominators SHALL NOT count it as a normal work session
+
+#### Scenario: Workflow model delegation excludes startup-only shells
+- **WHEN** a startup-only shell has an auto-created main agent or subagent row
+- **AND** it has no token usage
+- **AND** it has no real activity evidence
+- **THEN** `GET /api/workflows` model delegation SHALL NOT count that shell under `unknown`
+- **AND** it SHALL NOT count the shell in model delegation session denominators
+
+#### Scenario: Workflow session denominators match default visibility
+- **WHEN** a startup-only shell is hidden from default `GET /api/sessions`
+- **THEN** default Workflow session-count denominators and percentages SHALL exclude it
+- **AND** orchestration, workflow-pattern, compaction, and other default Workflow sections SHALL NOT use it as a normal work-session denominator
+
+#### Scenario: Workflow stats preserve classifier-visible short sessions
+- **WHEN** a short session has only `SessionStart`
+- **AND** the shared classifier preserves it because of content evidence, non-default summary, non-startup source, unparsable event data, token usage, or usable transcript evidence
+- **THEN** Workflow stats and Workflow complexity SHALL both treat that session as visible
+- **AND** `stats.totalSessions` SHALL NOT use a looser or stricter approximation than the shared classifier
 
 #### Scenario: Diagnostic mode can expose startup-only shells
 - **WHEN** a caller explicitly requests diagnostic/noise rows

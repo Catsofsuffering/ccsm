@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, FileText, GitBranch } from "lucide-react";
+import { Bot, GitBranch, MessageSquareText, Radio } from "lucide-react";
 import { api } from "../../lib/api";
 import { eventBus } from "../../lib/eventBus";
 import { MarkdownOutput } from "../MarkdownOutput";
@@ -23,6 +23,7 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
   const [isInitialLoading, setIsInitialLoading] = useState(() => Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [hasNewOutput, setHasNewOutput] = useState(false);
   const [isAtTop, setIsAtTop] = useState(true);
   const outputScrollRef = useRef<HTMLDivElement | null>(null);
@@ -39,6 +40,7 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
     setAgents([]);
     setOutputs({ agents: [], latest_output_agent_id: null });
     setSelectedAgentId(null);
+    setSelectedMessageId(null);
     setHasNewOutput(false);
     previousLatestRef.current = null;
     userHasExplicitlySelected.current = false;
@@ -177,7 +179,25 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
 
   const selectedAgent = selectedAgentId ? agentMap.get(selectedAgentId) || null : null;
   const selectedOutput = selectedAgentId ? outputMap.get(selectedAgentId) || null : null;
-  const historyOutputs = selectedOutput?.outputs.slice(1) || [];
+  const outputMessages = selectedOutput?.outputs || [];
+  const selectedMessage =
+    outputMessages.find((message) => message.id === selectedMessageId) ||
+    selectedOutput?.latest_output ||
+    outputMessages[0] ||
+    null;
+
+  useEffect(() => {
+    if (!selectedOutput?.latest_output) {
+      setSelectedMessageId(null);
+      return;
+    }
+
+    setSelectedMessageId((current) =>
+      current && selectedOutput.outputs.some((message) => message.id === current)
+        ? current
+        : selectedOutput.latest_output?.id || null
+    );
+  }, [selectedOutput]);
 
   return (
     <div className="space-y-5">
@@ -205,14 +225,17 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
                       : "border-border/70 bg-[rgb(var(--surface-1)/0.34)] text-gray-400 hover:border-border hover:text-gray-200"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2">
                       {agent.type === "main" ? (
                         <Bot className="h-3.5 w-3.5" />
                       ) : (
                         <GitBranch className="h-3.5 w-3.5" />
                       )}
-                      <span className="text-sm font-medium">{truncate(agent.name, 22)}</span>
-                    </div>
+                      <span className="truncate text-sm font-medium">{truncate(agent.name, 22)}</span>
+                    </span>
+                    <AgentStatusBadge status={agent.status} pulse={agent.status === "working" || agent.status === "connected"} />
+                  </div>
                     <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
                       <span>{feed?.output_count || 0} entries</span>
                       <span>|</span>
@@ -253,35 +276,79 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
             </div>
           )}
 
-          {!isInitialLoading && !error && selectedAgent && selectedOutput?.latest_output && (
-            <div className="space-y-6">
-              <div
-                className="rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl"
-              >
-                <div className="flex items-start justify-between gap-4">
+          {!isInitialLoading && !error && selectedAgent && selectedOutput?.latest_output && selectedMessage && (
+            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="rounded-2xl border border-border/70 bg-[rgb(var(--surface-1)/0.34)] p-3">
+                <div className="mb-3 flex items-center justify-between gap-2 px-1">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Latest Output</p>
-                      {hasNewOutput && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHasNewOutput(false);
-                            if (typeof outputScrollRef.current?.scrollTo === "function") {
-                              outputScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
-                            }
-                          }}
-                          className="inline-flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-medium text-accent hover:bg-accent/30 focus:outline-none focus:ring-1 focus:ring-accent/50"
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
-                          New
-                        </button>
-                      )}
-                    </div>
-                    <h4 className="mt-2 text-base font-semibold text-gray-100">{selectedAgent.name}</h4>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-500">
+                      Agent Stream
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">{outputMessages.length} captured messages</p>
+                  </div>
+                  {hasNewOutput && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHasNewOutput(false);
+                        setSelectedMessageId(selectedOutput.latest_output?.id || null);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full bg-accent/20 px-2 py-1 text-[10px] font-medium text-accent hover:bg-accent/30"
+                    >
+                      <Radio className="h-3 w-3" />
+                      Live
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {outputMessages.map((message, index) => {
+                    const isSelected = selectedMessage.id === message.id;
+                    const sourceLabel =
+                      message.source === "team_return"
+                        ? "Team"
+                        : message.source === "transcript"
+                          ? "Transcript"
+                          : "Hook";
+                    return (
+                      <button
+                        key={message.id}
+                        type="button"
+                        onClick={() => setSelectedMessageId(message.id)}
+                        className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                          isSelected
+                            ? "border-accent/40 bg-accent/10 text-gray-100"
+                            : "border-border/60 bg-[rgb(var(--surface-0)/0.28)] text-gray-400 hover:border-border hover:text-gray-200"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium">
+                            <MessageSquareText className="h-3.5 w-3.5" />
+                            {index === 0 ? "Latest" : `Update ${outputMessages.length - index}`}
+                          </span>
+                          <span className="rounded-full border border-border/70 px-2 py-0.5 text-[10px] text-gray-500">
+                            {sourceLabel}
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-gray-500">
+                          {message.timestamp ? timeAgo(message.timestamp) : "Timestamp unavailable"}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <article className="rounded-2xl border border-accent/20 bg-accent/10 p-4 backdrop-blur-xl">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-500">
+                      Current Message
+                    </p>
+                    <h4 className="mt-2 truncate text-base font-semibold text-gray-100">{selectedAgent.name}</h4>
                     <p className="mt-1 text-xs text-gray-500">
-                      {selectedOutput.latest_output.timestamp
-                        ? formatDateTime(selectedOutput.latest_output.timestamp)
+                      {selectedMessage.timestamp
+                        ? formatDateTime(selectedMessage.timestamp)
                         : "Timestamp unavailable"}
                     </p>
                   </div>
@@ -289,48 +356,15 @@ export function WorkflowLiveReader({ sessionId }: WorkflowLiveReaderProps) {
                 </div>
 
                 {selectedOutput.transcript_path && (
-                  <p className="mt-4 break-all text-[11px] font-mono text-gray-300">
-                    {truncate(selectedOutput.transcript_path, 72)}
+                  <p className="mt-4 break-all text-[11px] font-mono text-gray-500">
+                    {truncate(selectedOutput.transcript_path, 96)}
                   </p>
                 )}
 
-                <div className="mt-5 border-t border-border/70 pt-5">
-                  <MarkdownOutput markdown={selectedOutput.latest_output.markdown} />
+                <div className="mt-5 rounded-xl border border-border/70 bg-[rgb(var(--surface-0)/0.28)] p-4">
+                  <MarkdownOutput markdown={selectedMessage.markdown} />
                 </div>
-              </div>
-
-              {historyOutputs.length > 0 && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Output History</p>
-                      <p className="mt-1 text-sm text-gray-400">
-                        {historyOutputs.length} earlier message{historyOutputs.length !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-                    <FileText className="h-4 w-4 text-gray-600" />
-                  </div>
-
-                  {historyOutputs.map((message) => (
-                    <article
-                      key={message.id}
-                      className="rounded-xl border border-border/70 bg-[rgb(var(--surface-1)/0.38)] px-4 py-4 backdrop-blur-xl"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-gray-500">
-                          {message.source === "transcript" ? "Transcript" : "Hook snapshot"}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {message.timestamp ? formatDateTime(message.timestamp) : "Timestamp unavailable"}
-                        </p>
-                      </div>
-                      <div className="mt-4">
-                        <MarkdownOutput markdown={message.markdown} />
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
+              </article>
             </div>
           )}
 

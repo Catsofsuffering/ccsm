@@ -45,6 +45,20 @@ export interface RunClaudeExecResult {
   runId: string
 }
 
+interface MonitorAgentSnapshot {
+  id: string
+  name?: string | null
+  type?: string | null
+  subagent_type?: string | null
+  status?: string | null
+  current_tool?: string | null
+}
+
+interface MonitorSessionSnapshot {
+  status: string
+  agents: MonitorAgentSnapshot[]
+}
+
 const CLAUDE_PERMISSION_MODE_ARG = '--permission-mode'
 const CLAUDE_PERMISSION_BYPASS = 'bypassPermissions'
 const CLAUDE_PERMISSION_SKIP_VALUES = new Set(['inherit', 'none', 'off', 'false', '0'])
@@ -346,15 +360,50 @@ async function readPrompt(options: Pick<RunClaudeExecOptions, 'prompt' | 'prompt
   return null
 }
 
-async function fetchSessionStatus(port: number, sessionId: string): Promise<{ status: string } | null> {
+async function fetchSessionStatus(port: number, sessionId: string): Promise<MonitorSessionSnapshot | null> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}`)
     if (!response.ok) return null
-    const data = await response.json() as { session?: { status?: string } }
-    return data.session ? { status: data.session.status ?? 'unknown' } : null
+    const data = await response.json() as {
+      session?: { status?: string }
+      agents?: MonitorAgentSnapshot[]
+    }
+    return data.session
+      ? {
+          status: data.session.status ?? 'unknown',
+          agents: Array.isArray(data.agents) ? data.agents : [],
+        }
+      : null
   }
   catch {
     return null
+  }
+}
+
+function formatMonitorAgent(agent: MonitorAgentSnapshot): string {
+  const label = agent.type === 'main'
+    ? 'main'
+    : agent.subagent_type || agent.name || agent.id.slice(0, 8)
+  const tool = agent.current_tool ? `:${agent.current_tool}` : ''
+  return `${label}=${agent.status || 'unknown'}${tool}`
+}
+
+function createMonitorProgressReporter(sessionId: string): (snapshot: MonitorSessionSnapshot) => void {
+  let lastLine = ''
+
+  return (snapshot) => {
+    const agents = snapshot.agents
+      .slice()
+      .sort((left, right) => {
+        if (left.type === right.type) return (left.name || left.id).localeCompare(right.name || right.id)
+        return left.type === 'main' ? -1 : 1
+      })
+      .map(formatMonitorAgent)
+      .join(' | ')
+    const line = `[ccsm monitor] session ${sessionId.slice(0, 8)} ${snapshot.status}${agents ? ` | ${agents}` : ''}`
+    if (line === lastLine) return
+    lastLine = line
+    process.stderr.write(`${line}\n`)
   }
 }
 
@@ -363,10 +412,14 @@ async function waitForSessionTerminal(
   sessionId: string,
   childExitPromise: Promise<number>,
   gracePeriodMs: number,
+  onProgress?: (snapshot: MonitorSessionSnapshot) => void,
 ): Promise<{ status: string; timedOut: boolean; childExitCode: number | null }> {
   // Race: wait for session terminal state OR child process exit
   while (true) {
     const session = await fetchSessionStatus(port, sessionId)
+    if (session) {
+      onProgress?.(session)
+    }
     if (session && ['completed', 'error', 'abandoned'].includes(session.status)) {
       return { status: session.status, timedOut: false, childExitCode: null }
     }
@@ -388,6 +441,9 @@ async function waitForSessionTerminal(
       while (Date.now() < graceDeadline) {
         await new Promise(resolve => setTimeout(resolve, 500))
         const sessionAfterGrace = await fetchSessionStatus(port, sessionId)
+        if (sessionAfterGrace) {
+          onProgress?.(sessionAfterGrace)
+        }
         if (sessionAfterGrace && ['completed', 'error', 'abandoned'].includes(sessionAfterGrace.status)) {
           return { status: sessionAfterGrace.status, timedOut: false, childExitCode: result.code }
         }
@@ -496,6 +552,7 @@ export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise
   if (createdSessionId) {
     sessionId = createdSessionId
   }
+  const reportProgress = createMonitorProgressReporter(sessionId)
 
   // Wait for monitor session to reach terminal state, with grace period after child exits
   const { status: sessionStatus, timedOut } = await waitForSessionTerminal(
@@ -503,6 +560,7 @@ export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise
     sessionId,
     childExitPromise,
     gracePeriodMs,
+    reportProgress,
   )
 
   if (timedOut) {

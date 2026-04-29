@@ -7,9 +7,11 @@ const {
 const router = Router();
 let boardCache = null;
 
-router.get("/changes", async (_req, res) => {
+router.get("/changes", async (req, res) => {
   try {
-    const workspaceRoot = resolveWorkspaceRoot();
+    const workspaceRoot = resolveWorkspaceRoot(
+      typeof req.query.workspaceRoot === "string" ? req.query.workspaceRoot : undefined
+    );
     if (
       boardCache
       && boardCache.workspaceRoot === workspaceRoot

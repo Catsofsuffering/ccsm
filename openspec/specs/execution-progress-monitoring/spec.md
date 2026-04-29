@@ -182,6 +182,22 @@ The monitoring system SHALL persist and broadcast team-agent return or mailbox-s
 - **THEN** the monitor SHALL store an event associated with the correct session and best-known agent
 - **AND** the monitor SHALL broadcast the update over the existing WebSocket channel without waiting for session completion
 
+#### Scenario: Structured Agent Teams tool output is observed
+- **WHEN** a Claude hook event contains structured `TeamCreate`, `TaskCreate`, `TaskUpdate`, `SendMessage`, or teammate mailbox payload data
+- **THEN** the monitor SHALL parse the structured payload instead of relying only on notification text matching
+- **AND** any teammate `summary` or `message` content SHALL be persisted as realtime output for the session
+- **AND** the Workflow Live Reader output endpoint SHALL expose that content before `SubagentStop` or `SessionEnd`
+
+#### Scenario: Structured Agent Teams lifecycle event has no teammate output
+- **WHEN** a Claude hook event contains `TeamCreate`, `TaskCreate`, or `TaskUpdate` payload data without teammate message text
+- **THEN** the monitor MAY record normal lifecycle activity
+- **BUT** it SHALL NOT create a fake teammate return output
+
+#### Scenario: Structured teammate output is later observed through a fallback source
+- **WHEN** the same teammate message is first observed through structured `SendMessage` or mailbox payload data
+- **AND** the same text later appears through `SubagentStop`, `Notification`, or transcript-derived output
+- **THEN** the monitor SHALL avoid duplicate visible output entries for the same session and best-known agent
+
 #### Scenario: Subagent completes with final output
 - **WHEN** a `SubagentStop` or transcript-derived event includes final teammate output
 - **THEN** the monitor SHALL update the relevant agent status and output summary
@@ -203,3 +219,89 @@ The Agent Teams monitoring changes SHALL preserve existing hook-driven sessions,
 - **THEN** OpenSpec board views SHALL fail read-only with an explanatory state
 - **AND** session and event monitoring SHALL remain usable
 
+### Requirement: Workflow Agent output updates SHALL be visually stable
+The Workflow monitor UI SHALL update live Agent output without remounting or flashing the entire live reader region during routine output refreshes.
+
+#### Scenario: New Agent output arrives for the selected Agent
+- **WHEN** the Workflow page receives refreshed output for the currently selected Agent
+- **THEN** the latest output content SHALL update in place without replaying a full panel entry animation
+- **AND** the UI SHALL use only a small localized affordance to indicate the new output
+
+#### Scenario: Existing output refreshes with no selected Agent change
+- **WHEN** output data refreshes but the selected session and selected Agent remain the same
+- **THEN** the live reader SHALL preserve the selected Agent context
+- **AND** it SHALL NOT reset the reader to an empty, loading, or re-entering visual state
+
+#### Scenario: Background refresh starts while output is already visible
+- **WHEN** the Workflow Live Reader already has visible Agent output
+- **AND** a WebSocket or polling refresh starts a new request for the same session
+- **THEN** the existing output SHALL remain visible while the request is in flight
+- **AND** the reader SHALL NOT replace the output body with a full loading placeholder
+- **AND** any refresh affordance SHALL be local and non-disruptive
+
+### Requirement: Workflow Agent output refreshes SHALL preserve reading position
+The Workflow live reader SHALL avoid unexpected scroll jumps during routine output refreshes.
+
+#### Scenario: User is reading previous output
+- **WHEN** new Agent output arrives while the user has scrolled away from the bottom of the reader
+- **THEN** the reader SHALL preserve the user's scroll position
+- **AND** it SHALL surface a non-disruptive indication that newer output is available
+
+#### Scenario: User is following the live tail
+- **WHEN** new Agent output arrives while the user is already near the bottom of the reader
+- **THEN** the reader MAY keep the latest output in view
+- **AND** it SHALL avoid abrupt jump or full-region flash behavior
+
+### Requirement: Workflow update motion SHALL respect reduced-motion preferences
+The Workflow live reader SHALL make new output affordances reduced-motion aware.
+
+#### Scenario: Reduced motion is requested
+- **WHEN** the user's environment requests reduced motion
+- **THEN** non-essential output update animation SHALL be disabled or simplified
+- **AND** the update shall remain understandable through static visual state
+
+#### Scenario: Motion is allowed
+- **WHEN** reduced motion is not requested
+- **THEN** any output update motion SHALL remain localized to the changed output indicator or border treatment
+- **AND** it SHALL NOT animate unrelated Workflow panels or the whole page shell
+
+### Requirement: Runtime events SHALL normalize into the monitor execution model
+The maintained workflow SHALL collect execution progress from Claude hook events and optional runtime adapter events, then normalize supported events into the same monitor session, agent, event, token/model, and output model.
+
+#### Scenario: Claude hook activity is emitted
+- **WHEN** Claude Code emits session, tool-use, Agent Teams, or subagent lifecycle hook events
+- **THEN** the monitoring system SHALL update the corresponding session, agent, activity, token, and output records as before
+
+#### Scenario: ACP runtime activity is observed
+- **WHEN** an optional ACP adapter provides supported session, lifecycle, tool/action, output, or model metadata
+- **THEN** the monitor SHALL normalize the activity into the existing session, agent, event, and output APIs
+- **AND** it SHALL preserve ACP source metadata in the stored event data
+
+#### Scenario: Unsupported ACP payload is observed
+- **WHEN** ACP runtime data does not match a supported normalized shape
+- **THEN** the monitor SHALL retain safe diagnostic metadata where practical
+- **AND** it SHALL NOT corrupt hook-driven session state
+
+### Requirement: Duplicate runtime observations SHALL be suppressed
+The monitor SHALL avoid presenting duplicate user-facing sessions or output entries when the same execution is observed through more than one runtime source.
+
+#### Scenario: Hook and ACP data describe the same run
+- **WHEN** hook and ACP events carry the same run id, session id, transcript path, or equivalent correlation metadata
+- **THEN** the monitor SHALL associate them with one monitor session where practical
+- **AND** event data SHALL record each source without duplicating equivalent output entries
+
+#### Scenario: Correlation is unavailable
+- **WHEN** two runtime sources cannot be confidently correlated
+- **THEN** the monitor SHALL keep source metadata explicit
+- **AND** it SHALL avoid destructive merging or guessed identity
+
+### Requirement: Existing hook-driven monitoring SHALL remain compatible with optional runtimes
+Adding optional runtime adapter events SHALL preserve existing hook-driven monitoring behavior.
+
+#### Scenario: Non-ACP Claude session emits hooks
+- **WHEN** a normal Claude or Agent Teams session emits hook events
+- **THEN** the monitor SHALL continue to create sessions, update agents, persist events, extract token usage, expose outputs, and broadcast live updates as before
+
+#### Scenario: ACP is absent
+- **WHEN** no ACP adapter is installed or configured
+- **THEN** execution progress monitoring SHALL continue through Claude hooks without degraded default behavior

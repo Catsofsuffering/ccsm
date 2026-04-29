@@ -2025,6 +2025,109 @@ describe("Run ID Correlation", () => {
     assert.equal(runRes.body.sessions[0].run_id, runId);
   });
 
+  it("should hide startup-only child hooks with the same run_id until activity arrives", async () => {
+    const runId = `run-startup-hidden-${Date.now()}`;
+    const firstChild = `runid-startup-child-a-${Date.now()}`;
+    const secondChild = `runid-startup-child-b-${Date.now()}`;
+
+    await post("/api/hooks/event", {
+      hook_type: "SessionStart",
+      data: {
+        session_id: firstChild,
+        run_id: runId,
+        cwd: "/test/project",
+        source: "startup",
+        hook_event_name: "SessionStart",
+        transcript_path: `/missing/${firstChild}.jsonl`,
+      },
+    });
+    await post("/api/hooks/event", {
+      hook_type: "SessionStart",
+      data: {
+        session_id: secondChild,
+        run_id: runId,
+        cwd: "/test/project",
+        source: "startup",
+        hook_event_name: "SessionStart",
+        transcript_path: `/missing/${secondChild}.jsonl`,
+      },
+    });
+
+    const defaultRes = await fetch("/api/sessions");
+    assert.equal(defaultRes.status, 200);
+    const defaultIds = defaultRes.body.sessions.map((session) => session.id);
+    assert.ok(!defaultIds.includes(firstChild), "startup-only canonical child should be hidden by default");
+    assert.ok(!defaultIds.includes(secondChild), "startup-only alias child should not create a visible session");
+
+    const diagnosticRes = await fetch("/api/sessions?includeNoise=true");
+    assert.equal(diagnosticRes.status, 200);
+    const diagnosticMatches = diagnosticRes.body.sessions.filter((session) => session.run_id === runId);
+    assert.equal(diagnosticMatches.length, 1, "diagnostics should show one canonical startup-only row");
+    assert.equal(diagnosticMatches[0].id, firstChild);
+    assert.equal(diagnosticMatches[0].isNoise, true);
+    assert.equal(diagnosticMatches[0].noiseType, "startup-only");
+
+    const secondDetail = await fetch(`/api/sessions/${secondChild}`);
+    assert.equal(secondDetail.status, 404, "second startup child should remain an alias, not a visible session");
+  });
+
+  it("should promote a startup-only run session when later main activity arrives", async () => {
+    const runId = `run-startup-promote-${Date.now()}`;
+    const startupChild = `runid-promote-child-${Date.now()}`;
+    const mainSession = `runid-promote-main-${Date.now()}`;
+
+    await post("/api/hooks/event", {
+      hook_type: "SessionStart",
+      data: {
+        session_id: startupChild,
+        run_id: runId,
+        cwd: "/test/project",
+        source: "startup",
+        hook_event_name: "SessionStart",
+        transcript_path: `/missing/${startupChild}.jsonl`,
+      },
+    });
+
+    let listRes = await fetch("/api/sessions");
+    assert.equal(listRes.status, 200);
+    assert.ok(!listRes.body.sessions.some((session) => session.id === startupChild));
+
+    await post("/api/hooks/event", {
+      hook_type: "PreToolUse",
+      data: {
+        session_id: mainSession,
+        run_id: runId,
+        cwd: "/test/project",
+        tool_name: "Read",
+        tool_input: { file_path: "README.md" },
+      },
+    });
+
+    listRes = await fetch("/api/sessions");
+    assert.equal(listRes.status, 200);
+    const visibleMatches = listRes.body.sessions.filter((session) => session.run_id === runId);
+    assert.equal(visibleMatches.length, 1, "later main activity should promote exactly one visible logical session");
+    assert.equal(visibleMatches[0].id, startupChild, "the provisional startup row becomes the canonical logical session");
+    assert.equal(visibleMatches[0].isNoise, undefined);
+
+    const mainDetail = await fetch(`/api/sessions/${mainSession}`);
+    assert.equal(mainDetail.status, 404, "main raw session id should be retained as source metadata, not a visible sibling");
+
+    const canonicalDetail = await fetch(`/api/sessions/${startupChild}`);
+    assert.equal(canonicalDetail.status, 200);
+    const mainEvent = canonicalDetail.body.events.find((event) => {
+      if (event.event_type !== "PreToolUse") return false;
+      const data = JSON.parse(event.data);
+      return data.source_session_id === mainSession && data.canonical_session_id === startupChild;
+    });
+    assert.ok(mainEvent, "promoted canonical session should retain main raw source_session_id");
+
+    const runRes = await fetch(`/api/sessions?run_id=${encodeURIComponent(runId)}`);
+    assert.equal(runRes.status, 200);
+    assert.equal(runRes.body.sessions.length, 1);
+    assert.equal(runRes.body.sessions[0].id, startupChild);
+  });
+
   it("should preserve raw source session ids when events are canonicalized by run_id", async () => {
     const runId = `run-source-${Date.now()}`;
     const canonicalSession = `runid-source-main-${Date.now()}`;
@@ -3618,5 +3721,262 @@ describe("Workflow Project Scope", () => {
     const pairs = res.body.cooccurrence.map(pair => `${pair.source}->${pair.target}`);
     assert.ok(pairs.includes("completed-plan->completed-review"), "completed cooccurrence should be included");
     assert.ok(!pairs.includes("active-research->active-test"), "active cooccurrence should be excluded by status");
+  });
+});
+
+// ============================================================
+// Packet A: Startup-Only Noise Session Filtering
+// ============================================================
+describe("Startup-Only Noise Session Filtering", () => {
+  // Helper: create a startup-only noise session (only SessionStart, no token_usage)
+  function insertStartupOnlyNoiseSession(id, name = "Startup Noise") {
+    stmts.insertSession.run(id, name, "abandoned", null, null, null);
+    // Mirrors real Claude startup-only shells: default lifecycle summary plus startup metadata.
+    stmts.insertEvent.run(
+      id,
+      null,
+      "SessionStart",
+      null,
+      "Session started",
+      JSON.stringify({
+        session_id: id,
+        transcript_path: `C:\\Users\\test\\.claude\\projects\\B--project-ccs\\${id}.jsonl`,
+        cwd: "B:\\project\\ccs",
+        hook_event_name: "SessionStart",
+        source: "startup",
+        source_session_id: id,
+      })
+    );
+  }
+
+  // Helper: create a real session with non-start activity
+  function insertRealSession(id, name = "Real Session") {
+    stmts.insertSession.run(id, name, "active", null, null, null);
+    stmts.insertEvent.run(id, null, "SessionStart", null, null, null);
+    stmts.insertEvent.run(id, null, "PreToolUse", "Bash", "Used bash", null);
+  }
+
+  // Helper: create a session with SessionStart + token_usage (real)
+  function insertSessionWithTokens(id, name = "Token Session") {
+    stmts.insertSession.run(id, name, "completed", null, null, null);
+    stmts.insertEvent.run(id, null, "SessionStart", null, null, null);
+    stmts.upsertTokenUsage.run(id, "claude-opus-4-6", 100, 50, 0, 0);
+  }
+
+  // Helper: create a session with SessionStart + error event (real)
+  function insertErrorSession(id, name = "Error Session") {
+    stmts.insertSession.run(id, name, "error", null, null, null);
+    stmts.insertEvent.run(id, null, "SessionStart", null, null, null);
+    stmts.insertEvent.run(id, null, "Stop", null, "Error in root agent", null);
+  }
+
+  afterEach(() => {
+    // Clean up any sessions we created
+    const testIds = [
+      "noise-sess-1", "noise-sess-2", "noise-sess-3",
+      "real-sess-1", "real-sess-2", "real-sess-3",
+      "token-sess-1", "token-sess-2", "error-sess-1",
+      "real-sess-4", "noise-sess-actual", "real-sess-actual",
+      "historical-noise-sess", "historical-real-sess",
+      "noise-sess-analytics", "real-sess-analytics",
+    ];
+    for (const id of testIds) {
+      try {
+        db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
+        db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(id);
+        db.prepare("DELETE FROM events WHERE session_id = ?").run(id);
+        db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("should exclude startup-only noise sessions from default GET /api/sessions", async () => {
+    insertStartupOnlyNoiseSession("noise-sess-1", "Noise One");
+    insertRealSession("real-sess-1", "Real One");
+
+    const res = await fetch("/api/sessions");
+    assert.equal(res.status, 200);
+
+    const sessionIds = res.body.sessions.map((s) => s.id);
+    assert.ok(!sessionIds.includes("noise-sess-1"), "startup-only noise session must not appear in default listing");
+    assert.ok(sessionIds.includes("real-sess-1"), "real session with non-start activity must appear");
+  });
+
+  it("should classify real-world startup-only shells with default summary as noise", async () => {
+    insertStartupOnlyNoiseSession("noise-sess-actual", "Actual Noise Shape");
+    insertRealSession("real-sess-actual", "Actual Real Shape");
+
+    const defaultRes = await fetch("/api/sessions");
+    assert.equal(defaultRes.status, 200);
+    const defaultIds = defaultRes.body.sessions.map((s) => s.id);
+    assert.ok(!defaultIds.includes("noise-sess-actual"), "real-world startup-only shell must be hidden");
+    assert.ok(defaultIds.includes("real-sess-actual"), "real session must remain visible");
+
+    const diagnosticRes = await fetch("/api/sessions?includeNoise=true");
+    assert.equal(diagnosticRes.status, 200);
+    const noiseSession = diagnosticRes.body.sessions.find((s) => s.id === "noise-sess-actual");
+    assert.ok(noiseSession, "real-world startup-only shell must be visible in diagnostics");
+    assert.equal(noiseSession.isNoise, true);
+    assert.equal(noiseSession.noiseType, "startup-only");
+  });
+
+  it("should return startup-only noise sessions with isNoise marker when includeNoise=true", async () => {
+    insertStartupOnlyNoiseSession("noise-sess-2", "Noise Two");
+    insertRealSession("real-sess-2", "Real Two");
+
+    const res = await fetch("/api/sessions?includeNoise=true");
+    assert.equal(res.status, 200);
+
+    const sessions = res.body.sessions;
+    const noiseSession = sessions.find((s) => s.id === "noise-sess-2");
+    const realSession = sessions.find((s) => s.id === "real-sess-2");
+
+    assert.ok(noiseSession, "noise session must appear when includeNoise=true");
+    assert.equal(noiseSession.isNoise, true, "noise session must have isNoise=true");
+    assert.equal(noiseSession.noiseType, "startup-only", "noise session must have noiseType='startup-only'");
+    assert.ok(realSession, "real session must still appear");
+    assert.equal(realSession.isNoise, undefined, "real session must not have isNoise flag");
+  });
+
+  it("should exclude startup-only noise sessions from workflow complexity and session counts", async () => {
+    insertStartupOnlyNoiseSession("noise-sess-3", "Noise Three");
+    insertRealSession("real-sess-3", "Real Three");
+    insertSessionWithTokens("token-sess-1", "Token One");
+
+    const res = await fetch("/api/workflows");
+    assert.equal(res.status, 200);
+
+    const complexityIds = res.body.complexity.map((s) => s.id);
+    assert.ok(!complexityIds.includes("noise-sess-3"), "startup-only noise session must not appear in complexity");
+
+    // Real sessions should appear
+    assert.ok(complexityIds.includes("real-sess-3"), "real session with activity must appear in complexity");
+    assert.ok(complexityIds.includes("token-sess-1"), "session with token_usage must appear in complexity");
+
+    // totalSessions should not count noise
+    // (totalSessions is a count, not a list — we verify indirectly via complexity count consistency)
+    const noiseInComplexity = complexityIds.filter((id) => id === "noise-sess-3").length;
+    assert.equal(noiseInComplexity, 0, "no noise sessions should be in complexity");
+  });
+
+  it("should exclude startup-only noise agent rows from workflow analytics", async () => {
+    await post("/api/settings/openspec-workspace", { workspaceRoot: "" });
+    const before = await fetch("/api/workflows");
+    assert.equal(before.status, 200);
+
+    insertStartupOnlyNoiseSession("noise-sess-analytics", "Noise Analytics");
+    db.prepare(
+      "INSERT INTO agents (id, session_id, name, type, subagent_type, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-1 hour'))"
+    ).run("noise-sess-analytics-main", "noise-sess-analytics", "Noise Main", "main", null, "completed");
+    db.prepare(
+      "INSERT INTO agents (id, session_id, name, type, subagent_type, status, parent_agent_id, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '-90 minutes'), datetime('now', '-80 minutes'))"
+    ).run("noise-sess-analytics-plan", "noise-sess-analytics", "Noise Plan", "subagent", "noise-plan", "completed", "noise-sess-analytics-main");
+    db.prepare(
+      "INSERT INTO agents (id, session_id, name, type, subagent_type, status, parent_agent_id, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '-70 minutes'), datetime('now', '-60 minutes'))"
+    ).run("noise-sess-analytics-review", "noise-sess-analytics", "Noise Review", "subagent", "noise-review", "error", "noise-sess-analytics-main");
+    db.prepare("UPDATE sessions SET started_at = datetime('now', '-2 hours'), ended_at = datetime('now', '-1 hour') WHERE id = ?").run("noise-sess-analytics");
+
+    insertRealSession("real-sess-analytics", "Real Analytics");
+    db.prepare(
+      "INSERT INTO agents (id, session_id, name, type, subagent_type, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-1 hour'))"
+    ).run("real-sess-analytics-main", "real-sess-analytics", "Real Main", "main", null, "completed");
+    db.prepare(
+      "INSERT INTO agents (id, session_id, name, type, subagent_type, status, parent_agent_id, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '-90 minutes'), datetime('now', '-80 minutes'))"
+    ).run("real-sess-analytics-sub", "real-sess-analytics", "Real Sub", "subagent", "real-analytics", "completed", "real-sess-analytics-main");
+    db.prepare("UPDATE sessions SET started_at = datetime('now', '-2 hours'), ended_at = datetime('now', '-1 hour') WHERE id = ?").run("real-sess-analytics");
+
+    const res = await fetch("/api/workflows");
+    assert.equal(res.status, 200);
+
+    assert.equal(
+      res.body.stats.totalAgents,
+      before.body.stats.totalAgents + 2,
+      "workflow stats should include only real analytics agents"
+    );
+    assert.equal(
+      res.body.stats.totalSubagents,
+      before.body.stats.totalSubagents + 1,
+      "workflow stats should exclude noise subagent rows"
+    );
+
+    const effectiveTypes = res.body.effectiveness.map((row) => row.subagent_type);
+    assert.ok(effectiveTypes.includes("real-analytics"), "real subagent type should remain visible");
+    assert.ok(!effectiveTypes.includes("noise-plan"), "startup-only noise subagent type should be hidden");
+    assert.ok(!effectiveTypes.includes("noise-review"), "startup-only noise error type should be hidden");
+
+    const orchestrationTypes = res.body.orchestration.subagentTypes.map((row) => row.subagent_type);
+    assert.ok(!orchestrationTypes.includes("noise-plan"), "orchestration should exclude noise agent rows");
+
+    const lanes = res.body.concurrency.aggregateLanes.map((lane) => lane.name);
+    assert.ok(lanes.includes("real-analytics"), "concurrency should include real ended sessions");
+    assert.ok(!lanes.includes("noise-plan"), "concurrency should exclude ended startup-only shells");
+
+    const errorTypes = res.body.errorPropagation.byType.map((row) => row.subagent_type);
+    assert.ok(!errorTypes.includes("noise-review"), "error analytics should exclude startup-only shells");
+  });
+
+  it("should keep real sessions visible when they have non-start activity events", async () => {
+    // Real session: SessionStart + PreToolUse
+    insertRealSession("real-sess-4", "Real Four");
+
+    // Error session: SessionStart + Stop with error
+    insertErrorSession("error-sess-1", "Error One");
+
+    const res = await fetch("/api/sessions");
+    assert.equal(res.status, 200);
+
+    const sessionIds = res.body.sessions.map((s) => s.id);
+    assert.ok(sessionIds.includes("real-sess-4"), "session with PreToolUse must be visible");
+    assert.ok(sessionIds.includes("error-sess-1"), "session with error/Stop event must be visible");
+  });
+
+  it("should not hide sessions that have token_usage even without non-start events", async () => {
+    // A session with token_usage is clearly real work, even if it has no explicit non-start events
+    insertSessionWithTokens("token-sess-2", "Token Two");
+
+    const res = await fetch("/api/sessions");
+    assert.equal(res.status, 200);
+
+    const sessionIds = res.body.sessions.map((s) => s.id);
+    assert.ok(sessionIds.includes("token-sess-2"), "session with token_usage must be visible");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run("token-sess-2");
+    db.prepare("DELETE FROM events WHERE session_id = ?").run("token-sess-2");
+    db.prepare("DELETE FROM sessions WHERE id = ?").run("token-sess-2");
+  });
+
+  it("should hide historical abandoned startup-only rows without deleting or guessing model", async () => {
+    insertStartupOnlyNoiseSession("historical-noise-sess", "Historical Startup Shell");
+    insertRealSession("historical-real-sess", "Historical Real Session");
+
+    const before = stmts.getSession.get("historical-noise-sess");
+    assert.equal(before.status, "abandoned");
+    assert.equal(before.model, null);
+
+    const defaultRes = await fetch("/api/sessions");
+    assert.equal(defaultRes.status, 200);
+    const defaultIds = defaultRes.body.sessions.map((s) => s.id);
+    assert.ok(!defaultIds.includes("historical-noise-sess"), "historical startup shell must be hidden by default");
+    assert.ok(defaultIds.includes("historical-real-sess"), "real historical session must remain visible");
+
+    const diagnosticRes = await fetch("/api/sessions?includeNoise=true");
+    assert.equal(diagnosticRes.status, 200);
+    const historicalNoise = diagnosticRes.body.sessions.find((s) => s.id === "historical-noise-sess");
+    assert.ok(historicalNoise, "historical startup shell must remain available in diagnostics");
+    assert.equal(historicalNoise.isNoise, true);
+    assert.equal(historicalNoise.noiseType, "startup-only");
+
+    const after = stmts.getSession.get("historical-noise-sess");
+    assert.ok(after, "historical row must not be deleted by read-time classification");
+    assert.equal(after.status, "abandoned", "historical row status must not be mutated by reads");
+    assert.equal(after.model, null, "historical no-evidence row must not receive a guessed model");
+
+    const eventCount = db
+      .prepare("SELECT COUNT(*) as c FROM events WHERE session_id = ?")
+      .get("historical-noise-sess").c;
+    assert.equal(eventCount, 1, "historical startup event must remain intact");
   });
 });

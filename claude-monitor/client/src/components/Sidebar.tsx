@@ -72,7 +72,8 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
   const nextThemeLabel = theme === "dark" ? "Day mode" : "Night mode";
   const [workspaceInfo, setWorkspaceInfo] = useState<OpenSpecWorkspaceInfo | null>(null);
   const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
-  const [, setSelectingProject] = useState(false);
+  const [selectingProject, setSelectingProject] = useState(false);
+  const [projectSelectError, setProjectSelectError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,12 +106,15 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
   const handleProjectSelect = async (project: SelectableProjectRoot) => {
     setProjectSelectorOpen(false);
     setSelectingProject(true);
+    setProjectSelectError(null);
     try {
-      await api.settings.updateOpenSpecWorkspace(project.root);
-      // Reload the page to invalidate all cached state and refresh OpenSpec views
-      window.location.reload();
-    } catch {
-      // Ignore errors - workspace info will refresh on next poll
+      const result = await api.settings.updateOpenSpecWorkspace(project.root);
+      setWorkspaceInfo(result.openspec);
+      window.dispatchEvent(
+        new CustomEvent("ccsm:workspace-changed", { detail: result.openspec })
+      );
+    } catch (err) {
+      setProjectSelectError(err instanceof Error ? err.message : "Failed to switch project");
     } finally {
       setSelectingProject(false);
     }
@@ -137,9 +141,11 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
                   className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-300 transition-colors w-full truncate"
                 >
                   <span className="truncate">
-                    {currentWorkspaceLabel
-                      ? `Project: ${currentWorkspaceLabel}`
-                      : "Project: workspace not resolved"}
+                    {selectingProject
+                      ? "Switching project..."
+                      : currentWorkspaceLabel
+                        ? `Project: ${currentWorkspaceLabel}`
+                        : "Project: workspace not resolved"}
                   </span>
                   {projectSelectorOpen ? (
                     <ChevronDown className="w-3 h-3 flex-shrink-0" />
@@ -156,6 +162,9 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
               )}
               {currentWorkspace && !projectSelectorOpen && (
                 <p className="truncate text-[10px] text-gray-600">{currentWorkspace}</p>
+              )}
+              {projectSelectError && (
+                <p className="truncate text-[10px] text-red-400">{projectSelectError}</p>
               )}
             </div>
           )}

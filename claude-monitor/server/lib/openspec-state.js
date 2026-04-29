@@ -159,8 +159,8 @@ function getWorkspaceSelection(preferredRoot) {
   const activeWorkspaceRoot = getActiveWorkspaceRoot();
   const orderedCandidates = [
     { root: preferredRoot, source: "preferred" },
-    { root: process.env.OPENSPEC_WORKSPACE_ROOT, source: "env" },
     { root: activeWorkspaceRoot, source: "active" },
+    { root: process.env.OPENSPEC_WORKSPACE_ROOT, source: "env" },
     { root: process.env.CCG_WORKSPACE_ROOT, source: "legacy-env" },
     ...detectedRoots.map((root) => ({ root, source: "sessions" })),
     { root: process.cwd(), source: "cwd" },

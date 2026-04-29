@@ -54,7 +54,7 @@ export interface AgentOutputMessage {
   agent_id: string;
   timestamp: string | null;
   markdown: string;
-  source: "transcript" | "hook";
+  source: "transcript" | "hook" | "team_return";
 }
 
 export interface AgentOutputFeed {

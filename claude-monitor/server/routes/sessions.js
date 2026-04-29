@@ -9,6 +9,7 @@ const { broadcast } = require("../websocket");
 const { calculateCost } = require("./pricing");
 const { getSessionOutputs } = require("../lib/session-outputs");
 const { workspaceSessionFilter, getActiveWorkspaceRoot } = require("../lib/openspec-state");
+const { isStartupOnlyNoiseSession } = require("../lib/session-noise");
 
 const router = Router();
 
@@ -43,6 +44,7 @@ router.get("/", (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
   const status = req.query.status;
   const runId = req.query.run_id;
+  const includeNoise = req.query.includeNoise === "true";
   // Default to active workspace when workspaceRoot is not explicitly provided
   const workspaceRoot = req.query.workspaceRoot || getActiveWorkspaceRoot() || null;
 
@@ -81,7 +83,22 @@ router.get("/", (req, res) => {
       : stmts.listSessions.all(queryLimit, 0);
   }
 
-  rows = filterCanonicalRunSessions(rows).slice(offset, offset + limit);
+  rows = filterCanonicalRunSessions(rows);
+
+  // Filter startup-only noise sessions (conservative classification)
+  if (!includeNoise) {
+    rows = rows.filter((row) => !isStartupOnlyNoiseSession(db, row.id));
+  } else {
+    // Mark noise sessions when includeNoise=true
+    for (const row of rows) {
+      if (isStartupOnlyNoiseSession(db, row.id)) {
+        row.isNoise = true;
+        row.noiseType = "startup-only";
+      }
+    }
+  }
+
+  rows = rows.slice(offset, offset + limit);
 
   // Bulk-compute costs for all returned sessions in a single pass
   if (rows.length > 0) {

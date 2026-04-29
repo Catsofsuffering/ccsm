@@ -120,6 +120,7 @@ ccsm init
 ccsm monitor
 ccsm monitor --detach
 ccsm monitor restart
+ccsm monitor shutdown
 ccsm claude
 ccsm config mcp
 ccsm diagnose-mcp
@@ -132,6 +133,7 @@ ccsm fix-mcp
 - `ccsm init`：安装并初始化工作流。
 - `ccsm monitor`：启动本地 Claude hook monitor。
 - `ccsm monitor restart`：重启本地 monitor，并绑定到当前工作区。
+- `ccsm monitor shutdown`：在端口进程确认为 CCSM monitor 时关闭本地 monitor。
 - `ccsm claude`：通过 CCSM dispatcher 启动 Claude，适用于 Codex 交接执行场景。
 - `ccsm config mcp`：配置 MCP token。
 - `ccsm diagnose-mcp`：诊断 MCP 配置问题。
@@ -140,6 +142,8 @@ ccsm fix-mcp
 ## Monitor
 
 本地 monitor 是 Codex 编排 + Claude 执行这条链路的运行态观察面。它的目标不是替代终端，而是把 OpenSpec 进度、session 拓扑和 agent 输出集中可视化。
+
+它现在支持项目选择、按选中项目限定 Workflow、过滤 startup-only shell session、展示更具体的模型归因、实时呈现 Agent Teams 输出，以及可选的 ACP/runtime health 观测。
 
 主要页面包括：
 

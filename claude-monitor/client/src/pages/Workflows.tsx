@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Info, RefreshCw, Workflow } from "lucide-react";
 import { api } from "../lib/api";
 import { eventBus } from "../lib/eventBus";
 import type {
   OpenSpecBoardData,
+  OpenSpecWorkspaceInfo,
   SessionDrillIn,
   SessionOutputs,
   WorkflowData,
@@ -16,6 +17,31 @@ import { WorkflowLiveReader } from "../components/workflows/WorkflowLiveReader";
 type StatusFilter = "all" | "active" | "completed";
 type SessionOption = WorkflowData["complexity"][number];
 
+function workspaceLabel(workspaceRoot: string): string {
+  const normalized = workspaceRoot.replace(/[\\/]+$/, "");
+  return normalized.split(/[\\/]/).filter(Boolean).pop() || normalized;
+}
+
+function isEmptyAbandonedShell(session: SessionOption): boolean {
+  return (
+    session.status === "abandoned" &&
+    session.agentCount <= 1 &&
+    session.subagentCount === 0 &&
+    session.totalTokens === 0 &&
+    !session.model
+  );
+}
+
+function pickDefaultSession(sessions: SessionOption[]): SessionOption | null {
+  return (
+    sessions.find((session) => session.status === "active") ||
+    sessions.find((session) => session.status !== "abandoned" && session.totalTokens > 0) ||
+    sessions.find((session) => session.status !== "abandoned") ||
+    sessions[0] ||
+    null
+  );
+}
+
 export function Workflows() {
   const [data, setData] = useState<WorkflowData | null>(null);
   const [openSpecData, setOpenSpecData] = useState<OpenSpecBoardData | null>(null);
@@ -25,6 +51,7 @@ export function Workflows() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [focusedSession, setFocusedSession] = useState<SessionDrillIn | null>(null);
   const [focusedOutputs, setFocusedOutputs] = useState<SessionOutputs>({
@@ -33,13 +60,41 @@ export function Workflows() {
   });
   const [focusedSessionLoading, setFocusedSessionLoading] = useState(false);
   const [focusedSessionError, setFocusedSessionError] = useState<string | null>(null);
+  const userSelectedSessionRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api.settings.info()
+      .then((info) => {
+        if (!cancelled) setWorkspaceRoot(info.openspec.workspaceRoot ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceRoot(null);
+      });
+
+    const handleWorkspaceChange = (event: Event) => {
+      const next = (event as CustomEvent<OpenSpecWorkspaceInfo>).detail;
+      setWorkspaceRoot(next?.workspaceRoot ?? null);
+      setSelectedSessionId(null);
+      setFocusedSession(null);
+      setFocusedOutputs({ agents: [], latest_output_agent_id: null });
+      userSelectedSessionRef.current = false;
+    };
+
+    window.addEventListener("ccsm:workspace-changed", handleWorkspaceChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("ccsm:workspace-changed", handleWorkspaceChange);
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
       setError(null);
       const [workflowData, openspec] = await Promise.all([
-        api.workflows.get(statusFilter),
-        api.openspec.list(),
+        api.workflows.get(statusFilter, workspaceRoot),
+        api.openspec.list(workspaceRoot),
       ]);
       setData(workflowData);
       setOpenSpecData(openspec);
@@ -49,7 +104,7 @@ export function Workflows() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, workspaceRoot]);
 
   useEffect(() => {
     fetchData();
@@ -58,12 +113,14 @@ export function Workflows() {
   }, [fetchData]);
 
   const sessionOptions = useMemo<SessionOption[]>(
-    () => data?.complexity?.slice(0, 40) ?? [],
+    () => (data?.complexity ?? [])
+      .filter((session) => !isEmptyAbandonedShell(session))
+      .slice(0, 40),
     [data?.complexity]
   );
 
   useEffect(() => {
-    const nextSession = sessionOptions[0];
+    const nextSession = pickDefaultSession(sessionOptions);
 
     if (!nextSession) {
       if (selectedSessionId !== null) {
@@ -72,7 +129,14 @@ export function Workflows() {
       return;
     }
 
-    if (!selectedSessionId || !sessionOptions.some((session) => session.id === selectedSessionId)) {
+    const selectedStillVisible = sessionOptions.some((session) => session.id === selectedSessionId);
+    if (!selectedSessionId || !selectedStillVisible) {
+      userSelectedSessionRef.current = false;
+      setSelectedSessionId(nextSession.id);
+      return;
+    }
+
+    if (!userSelectedSessionRef.current && nextSession.id !== selectedSessionId) {
       setSelectedSessionId(nextSession.id);
     }
   }, [selectedSessionId, sessionOptions]);
@@ -182,6 +246,7 @@ export function Workflows() {
           onExport={handleExport}
           lastUpdated={null}
           refreshing={refreshing}
+          workspaceRoot={workspaceRoot}
         />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, index) => (
@@ -205,6 +270,7 @@ export function Workflows() {
           onExport={handleExport}
           lastUpdated={null}
           refreshing={refreshing}
+          workspaceRoot={workspaceRoot}
         />
         <div className="glass-panel rounded-2xl px-6 py-16 text-center text-sm text-gray-400">
           {error}
@@ -219,11 +285,15 @@ export function Workflows() {
     <div className="space-y-6">
       <PageHeader
         statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
+        onStatusFilterChange={(filter) => {
+          userSelectedSessionRef.current = false;
+          setStatusFilter(filter);
+        }}
         onRefresh={handleRefresh}
         onExport={handleExport}
         lastUpdated={lastUpdated}
         refreshing={refreshing}
+        workspaceRoot={workspaceRoot}
       />
 
       <WorkflowStats stats={data.stats} />
@@ -238,7 +308,10 @@ export function Workflows() {
           specSummary={specSummary}
           sessionOptions={sessionOptions}
           selectedSessionId={selectedSessionId}
-          onSessionChange={setSelectedSessionId}
+          onSessionChange={(sessionId) => {
+            userSelectedSessionRef.current = true;
+            setSelectedSessionId(sessionId);
+          }}
           onJumpToReader={() => {
             const target = document.getElementById("workflow-live-reader");
             target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -322,6 +395,7 @@ function PageHeader({
   onExport,
   lastUpdated,
   refreshing,
+  workspaceRoot,
 }: {
   statusFilter: StatusFilter;
   onStatusFilterChange: (filter: StatusFilter) => void;
@@ -329,6 +403,7 @@ function PageHeader({
   onExport: () => void;
   lastUpdated: Date | null;
   refreshing: boolean;
+  workspaceRoot: string | null;
 }) {
   const filters: { value: StatusFilter; label: string }[] = [
     { value: "all", label: "All Sessions" },
@@ -344,7 +419,9 @@ function PageHeader({
         </div>
         <div>
           <h1 className="text-base font-semibold text-gray-100">Workflows</h1>
-          <p className="text-xs text-gray-500">Live DAG and agent output surface</p>
+          <p className="text-xs text-gray-500">
+            {workspaceRoot ? `Project scope: ${workspaceLabel(workspaceRoot)}` : "Live DAG and agent output surface"}
+          </p>
         </div>
       </div>
 
