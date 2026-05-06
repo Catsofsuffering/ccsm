@@ -345,6 +345,132 @@ describe('Codex workflow entrypoint', () => {
 
     // spec-impl dispatch must use --status-driven for monitor correlation
     expect(specImplSkill).toContain('--status-driven')
+    expect(specImplSkill).toContain('do not run `spec-review`')
+    expect(specImplSkill).toContain('do not edit active change `tasks.md`')
+    expect(specImplSkill).toContain('do not mark tasks complete')
+    expect(specImplSkill).toContain('do not archive')
+    expect(specImplSkill).toContain('do not decide acceptance readiness')
+    const orchestrationSummary = result.skillRoleSummary?.find(summary => summary.role === 'orchestration')
+    expect(orchestrationSummary).toBeDefined()
+    expect(orchestrationSummary?.destinationHost).toBe('codex')
+    expect(orchestrationSummary?.destinationPath.replace(/\\/g, '/')).toBe(join(codexHomeDir, 'skills').replace(/\\/g, '/'))
+    expect(orchestrationSummary?.names).toEqual([
+      'spec-init',
+      'spec-research',
+      'spec-plan',
+      'spec-impl',
+      'spec-review',
+    ])
+  })
+
+  it('routes orchestration workflow skills to Claude when Claude is the configured orchestrator', { timeout: 60_000 }, async () => {
+    const claudeOrchestratorDir = join(tmpdir(), `ccsm-test-claude-orchestrator-${Date.now()}`)
+    const claudeOrchestratorCodexHome = join(claudeOrchestratorDir, '.codex-home')
+    const claudeOrchestratorClaudeHome = join(claudeOrchestratorDir, '.claude-home')
+
+    try {
+      const result = await installWorkflows([SAMPLE_WORKFLOW_ID], claudeOrchestratorDir, true, {
+        mcpProvider: 'skip',
+        claudeHomeDir: claudeOrchestratorClaudeHome,
+        codexHomeDir: claudeOrchestratorCodexHome,
+        ownership: {
+          orchestrator: 'claude',
+          executionHost: 'codex',
+        },
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.installedCodexSkills).toEqual([
+        'spec-init',
+        'spec-research',
+        'spec-plan',
+        'spec-impl',
+        'spec-review',
+      ])
+      expect(fs.existsSync(join(claudeOrchestratorClaudeHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(join(claudeOrchestratorClaudeHome, 'skills', 'spec-review', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(join(claudeOrchestratorCodexHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(false)
+      const orchestrationSummary = result.skillRoleSummary?.find(summary => summary.role === 'orchestration')
+      expect(orchestrationSummary).toBeDefined()
+      expect(orchestrationSummary?.destinationHost).toBe('claude')
+      expect(orchestrationSummary?.destinationPath.replace(/\\/g, '/')).toBe(join(claudeOrchestratorClaudeHome, 'skills').replace(/\\/g, '/'))
+      expect(orchestrationSummary?.names).toEqual([
+        'spec-init',
+        'spec-research',
+        'spec-plan',
+        'spec-impl',
+        'spec-review',
+      ])
+      expect(result.installedExecutionSkills).toEqual([])
+    }
+    finally {
+      await fs.remove(claudeOrchestratorDir)
+    }
+  })
+
+  it('preserves user-owned orchestration skill conflicts on the configured orchestrator host', { timeout: 60_000 }, async () => {
+    const conflictDir = join(tmpdir(), `ccsm-test-claude-orchestrator-conflict-${Date.now()}`)
+    const conflictCodexHome = join(conflictDir, '.codex-home')
+    const conflictClaudeHome = join(conflictDir, '.claude-home')
+    const userSkillDir = join(conflictClaudeHome, 'skills', 'spec-init')
+    const userSkillFile = join(userSkillDir, 'SKILL.md')
+
+    try {
+      await fs.ensureDir(userSkillDir)
+      await fs.writeFile(userSkillFile, '# Claude User Skill\n')
+
+      const result = await installWorkflows([SAMPLE_WORKFLOW_ID], conflictDir, true, {
+        mcpProvider: 'skip',
+        claudeHomeDir: conflictClaudeHome,
+        codexHomeDir: conflictCodexHome,
+        ownership: {
+          orchestrator: 'claude',
+          executionHost: 'codex',
+        },
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.stringContaining('Codex workflow skill conflict: spec-init'),
+      ]))
+      expect(await fs.readFile(userSkillFile, 'utf-8')).toBe('# Claude User Skill\n')
+      expect(fs.existsSync(join(conflictCodexHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(false)
+    }
+    finally {
+      await fs.remove(conflictDir)
+    }
+  })
+
+  it('removes stale canonical command surface from the non-orchestrator host', { timeout: 60_000 }, async () => {
+    const staleDir = join(tmpdir(), `ccsm-test-stale-host-${Date.now()}`)
+    const staleCodexHome = join(staleDir, '.codex-home')
+    const staleClaudeHome = join(staleDir, '.claude-home')
+    const staleCommandDir = join(staleClaudeHome, 'commands', 'ccsm')
+    const orchestratorInstallDir = staleCodexHome
+
+    try {
+      const sampleWorkflow = getWorkflowById(SAMPLE_WORKFLOW_ID)!
+      const sampleCommand = sampleWorkflow.commands[0]
+      await fs.ensureDir(staleCommandDir)
+      await fs.writeFile(join(staleCommandDir, 'spec-init.md'), 'stale command')
+
+      const result = await installWorkflows([SAMPLE_WORKFLOW_ID], orchestratorInstallDir, true, {
+        mcpProvider: 'skip',
+        codexHomeDir: staleCodexHome,
+        claudeHomeDir: staleClaudeHome,
+        ownership: {
+          orchestrator: 'codex',
+          executionHost: 'claude',
+        },
+      })
+
+      expect(result.success).toBe(true)
+      expect(fs.existsSync(staleCommandDir)).toBe(false)
+      expect(fs.existsSync(join(orchestratorInstallDir, 'commands', 'ccsm', `${sampleCommand}.md`))).toBe(true)
+    }
+    finally {
+      await fs.remove(staleDir)
+    }
   })
 
   it('uninstall only removes CCG-owned Codex workflow skills', { timeout: 60_000 }, async () => {
@@ -371,6 +497,43 @@ describe('Codex workflow entrypoint', () => {
         'spec-review',
       ])
       expect(fs.existsSync(join(userSkillDir, 'SKILL.md'))).toBe(true)
+    }
+    finally {
+      await fs.remove(uninstallDir)
+    }
+  })
+
+  it('uninstall removes orchestration workflow skills from Claude host when Claude is the orchestrator', { timeout: 60_000 }, async () => {
+    const uninstallDir = join(tmpdir(), `ccsm-test-claude-uninstall-${Date.now()}`)
+    const uninstallCodexHome = join(uninstallDir, '.codex-home')
+    const uninstallClaudeHome = join(uninstallDir, '.claude-home')
+
+    try {
+      await installWorkflows([SAMPLE_WORKFLOW_ID], uninstallDir, true, {
+        mcpProvider: 'skip',
+        claudeHomeDir: uninstallClaudeHome,
+        codexHomeDir: uninstallCodexHome,
+        ownership: {
+          orchestrator: 'claude',
+          executionHost: 'codex',
+        },
+      })
+
+      expect(fs.existsSync(join(uninstallClaudeHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(true)
+
+      const result = await uninstallWorkflows(uninstallDir, {
+        codexHomeDir: uninstallCodexHome,
+        claudeHomeDir: uninstallClaudeHome,
+      })
+      expect(result.success).toBe(true)
+      expect(result.removedCodexSkills).toEqual([
+        'spec-init',
+        'spec-research',
+        'spec-plan',
+        'spec-impl',
+        'spec-review',
+      ])
+      expect(fs.existsSync(join(uninstallClaudeHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(false)
     }
     finally {
       await fs.remove(uninstallDir)

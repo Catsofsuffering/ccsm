@@ -14,6 +14,7 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
 - Codex owns testing, acceptance, rework, and archive decisions.
 - The first implementation action is dispatch, not local coding.
 - Before Claude dispatch completes, Codex may inspect context and prepare the packet, but must not edit product code or start implementation locally.
+- `spec-impl` is an orchestration skill; execution workers must return implementation evidence to Codex rather than running review or mutating OpenSpec task state.
 
 **Steps**
 
@@ -25,6 +26,7 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
    - the expected worker topology and why Agent Teams are or are not required
    - required tests and checks
    - the return packet format
+   - explicit worker prohibitions: do not run `spec-review`, do not edit active change `tasks.md`, do not mark tasks complete, do not archive, and do not decide acceptance readiness
 4. Invoke Claude from Codex with a bounded prompt before doing any product-code implementation:
 
 ```bash
@@ -46,6 +48,7 @@ ccsm claude exec --status-driven --prompt-file .claude/ccsm/claude-dispatch-prom
    Only skip Agent Teams when the packet explicitly records why a single Claude worker is the better fit.
    Require every teammate prompt to define its mailbox return protocol explicitly: if `SendMessage` is deferred, the teammate must run `ToolSearch select:SendMessage` before its first mailbox reply, and any string reply must include both `summary` and `message`.
    Tell Claude that a teammate is not considered finished just because it goes idle or emits `SubagentStop`; the required report only counts after the team lead receives the teammate mailbox message.
+   Tell Claude and every execution worker that `spec-review`, OpenSpec task checkbox updates, archive decisions, and acceptance readiness are orchestrator-owned. If a worker finds task/spec inconsistency, it must report that in the return packet instead of editing `tasks.md` or changing source-of-truth OpenSpec artifacts.
    In non-interactive `claude -p` sessions, require Claude to emit the full return packet before shutdown, then follow the official shutdown order: gracefully shut down teammates, wait for approvals, and run cleanup exactly once.
    If cleanup reports success or `nothing to clean up`, do not let Claude keep retrying cleanup. Treat the last complete return packet as found in the monitor `outputs` field (structured via `sessionStatus` JSON) and stop the host Claude process if it falls into the known shutdown-reminder loop.
 
@@ -69,3 +72,4 @@ ccsm claude exec --status-driven --prompt-file .claude/ccsm/claude-dispatch-prom
 - If Claude dispatch is blocked or unavailable, stop and surface the blocker instead of silently implementing the change in Codex.
 - Do not let Claude make the final archive decision.
 - Do not archive before Codex verification passes.
+- Do not let Claude or execution workers run `spec-review`, edit active change `tasks.md`, mark OpenSpec tasks complete, or decide acceptance/archive readiness.

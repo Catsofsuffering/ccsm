@@ -184,8 +184,55 @@ function getWorkspaceSelection(preferredRoot) {
 }
 
 /**
+ * Detect worktree metadata for a root using bounded local evidence.
+ * Returns { branch, worktreeLabel } if a .git file (worktree marker) is found,
+ * otherwise returns nulls. Does NOT scan broad filesystem trees.
+ */
+function parseGitHead(headContent) {
+  const refMatch = headContent.trim().match(/^ref: refs\/heads\/(.+)$/m);
+  return refMatch ? refMatch[1] : null;
+}
+
+function getWorktreeMetadata(root) {
+  try {
+    const gitPath = path.join(root, ".git");
+    if (!fs.existsSync(gitPath)) return { branch: null, worktreeLabel: null };
+
+    const stat = fs.statSync(gitPath);
+    let gitDir = gitPath;
+    let isWorktree = false;
+
+    if (stat.isFile()) {
+      const gitContent = fs.readFileSync(gitPath, "utf8").trim();
+      const gitDirMatch = gitContent.match(/^gitdir:\s*(.+)$/i);
+      if (!gitDirMatch) return { branch: null, worktreeLabel: null };
+      gitDir = path.resolve(root, gitDirMatch[1].trim());
+      isWorktree = true;
+    }
+    else if (!stat.isDirectory()) {
+      return { branch: null, worktreeLabel: null };
+    }
+
+    const headPath = path.join(gitDir, "HEAD");
+    if (!fs.existsSync(headPath)) return { branch: null, worktreeLabel: null };
+
+    const branch = parseGitHead(fs.readFileSync(headPath, "utf8"));
+    if (!branch) return { branch: null, worktreeLabel: null };
+
+    // Derive a short worktreeLabel: use parent dir + branch for worktree context
+    const rootParts = root.split(/[\\/]/).filter(Boolean);
+    const parentDir = rootParts.length >= 2 ? rootParts[rootParts.length - 2] : null;
+    const worktreeLabel = isWorktree && parentDir ? `${parentDir}/${branch}` : branch;
+
+    return { branch, worktreeLabel };
+  } catch {
+    return { branch: null, worktreeLabel: null };
+  }
+}
+
+/**
  * Get selectable project roots for the client.
- * Returns array of { label, root, source } for each discoverable OpenSpec workspace.
+ * Returns array of { label, root, source, branch, worktreeLabel } for each discoverable OpenSpec workspace.
  */
 function getSelectableProjectRoots() {
   const cwdCandidates = getSessionWorkspaceCandidates();
@@ -230,11 +277,34 @@ function getSelectableProjectRoots() {
     }
   }
 
-  // Convert to array with label
+  // Collect all resolved roots for label disambiguation
+  const allRoots = Array.from(candidateMap.keys());
+
+  // Convert to array with label, branch, and worktreeLabel
   const result = [];
   for (const [root, { source }] of candidateMap) {
-    const label = path.basename(root) || root;
-    result.push({ label, root, source });
+    const basename = path.basename(root) || root;
+
+    // When basename would collide with another root, add parent directory for distinction.
+    // This uses bounded local evidence only (path traversal), no Git scanning.
+    const sameBasenameRoots = allRoots.filter((r) => path.basename(r) === basename);
+    let label = basename;
+    if (sameBasenameRoots.length > 1) {
+      // Use parent directory segment as distinguishing context
+      const parentBasename = path.basename(path.dirname(root));
+      if (parentBasename) {
+        label = `${basename} (${parentBasename})`;
+      }
+    }
+
+    const { branch, worktreeLabel } = getWorktreeMetadata(root);
+    result.push({
+      label,
+      root,
+      source,
+      branch: branch || undefined,
+      worktreeLabel: worktreeLabel || undefined,
+    });
   }
 
   return result;

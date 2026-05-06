@@ -54,7 +54,7 @@ The only maintained command is `ccsm`.
 ccsm init
 ```
 
-During setup, CCSM asks who orchestrates the workflow before model routing is selected. Codex is the recommended default. Base install no longer includes MCP buffet setup. The installer also places Codex-native entry skills under `~/.codex/skills/`.
+During setup, CCSM asks who orchestrates the workflow before model routing is selected. Codex is the recommended default. Base install no longer includes MCP buffet setup. The installer places orchestration entry skills on the configured orchestrator host; in the default Codex-led setup that is `~/.codex/skills/`.
 
 ### 2. Start the monitor
 
@@ -145,6 +145,8 @@ The local monitor is the operational view for the Codex + Claude execution loop.
 
 It now supports project selection, selected-project Workflow scoping, startup-only shell filtering, concrete model attribution, Agent Teams live output, and optional ACP/runtime health observations.
 
+When multiple Git worktrees or project roots are discovered, the sidebar shows both project identity and worktree/root detail so similarly named worktrees stay distinguishable.
+
 Main pages:
 
 - `Board`: current changes, progress, and activity snapshots.
@@ -172,8 +174,9 @@ Main pages:
 
 The current install path keeps the workflow host-native while making `.ccsm` the canonical home:
 
-- Claude-facing commands and runtime assets are still installed under `~/.claude/`.
-- Codex-native workflow skills are installed under `~/.codex/skills/`.
+- Host-facing commands and bridge assets are installed under the configured orchestrator host home.
+- Orchestration workflow skills are installed under the configured orchestrator host skill directory. In the default Codex-led path, this is `~/.codex/skills/`.
+- Execution skills, when present, are installed under the configured execution host skill directory.
 - Runtime data is stored under `~/.ccsm/`.
 - The maintained local monitor runtime lives under `~/.ccsm/claude-monitor`.
 
@@ -187,12 +190,13 @@ After installation, CCSM also installs:
 - `spec-impl`
 - `spec-review`
 
-These let the primary workflow start directly from Codex while keeping Claude available as the execution layer.
+These let the primary workflow start directly from the configured orchestrator while keeping Claude available as the default execution layer in the recommended Codex-led path.
 
 ### Current Skill Limitations
 
 - Codex-native skills are guidance loaded into the current Codex session; they do not yet enforce a runtime-level block on local file edits.
 - `spec-impl` is designed to dispatch implementation to Claude Agent Teams first, then keep verification and acceptance in Codex.
+- `spec-impl` is an orchestration skill. Execution workers must return evidence to the orchestrator; they must not run `spec-review`, edit active change `tasks.md`, mark tasks complete, archive, or decide acceptance readiness.
 - If the active session or user prompt says “continue implementation” without restating the dispatch requirement, Codex may still try to implement locally.
 - For reliable `spec-impl` behavior, explicitly mention Claude Agent Teams and `ccsm claude exec` when starting the skill.
 - If Claude Agent Teams, `ccsm claude exec`, or Claude permissions are unavailable, treat the run as blocked or use the explicit `/ccsm:team-*` commands instead of silently falling back to local Codex implementation.

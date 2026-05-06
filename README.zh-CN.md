@@ -54,7 +54,7 @@ ccsm
 ccsm init
 ```
 
-初始化时会先询问谁来编排整个工作流，再继续模型路由配置。推荐选择 Codex。基础安装阶段不再包含 MCP 自助选择。安装完成后，CCSM 也会把 Codex 原生入口技能安装到 `~/.codex/skills/`。
+初始化时会先询问谁来编排整个工作流，再继续模型路由配置。推荐选择 Codex。基础安装阶段不再包含 MCP 自助选择。安装完成后，CCSM 会把编排入口技能安装到配置的编排端；默认 Codex 编排路径下就是 `~/.codex/skills/`。
 
 ### 2. 启动 monitor
 
@@ -145,6 +145,8 @@ ccsm fix-mcp
 
 它现在支持项目选择、按选中项目限定 Workflow、过滤 startup-only shell session、展示更具体的模型归因、实时呈现 Agent Teams 输出，以及可选的 ACP/runtime health 观测。
 
+当 monitor 发现多个 Git worktree 或项目根时，sidebar 会同时显示项目身份与 worktree/root 细节，让相似名称的 worktree 保持可区分。
+
 主要页面包括：
 
 - `Board`：当前 change、进度和活动摘要。
@@ -172,8 +174,9 @@ ccsm fix-mcp
 
 当前安装策略是在保持宿主原生发现的前提下，把 `.ccsm` 作为唯一 canonical home：
 
-- 面向 Claude 的命令与宿主桥接资源仍安装在 `~/.claude/` 下。
-- Codex 原生工作流 skills 安装在 `~/.codex/skills/` 下。
+- 面向宿主的命令与桥接资源安装在配置的编排端 host home 下。
+- 编排工作流 skills 安装在配置的编排端技能目录下。默认 Codex 编排路径下是 `~/.codex/skills/`。
+- 执行 skills 如果存在，则安装在配置的执行端技能目录下。
 - 运行时数据保存在 `~/.ccsm/` 下。
 - 当前维护中的本地 monitor 运行时位于 `~/.ccsm/claude-monitor`。
 
@@ -187,12 +190,13 @@ ccsm fix-mcp
 - `spec-impl`
 - `spec-review`
 
-这样主工作流就可以直接从 Codex 发起，同时保留 Claude 作为执行层。
+这样主工作流就可以直接从配置的编排端发起；在推荐的 Codex 编排路径下，Claude 仍是默认执行层。
 
 ### 当前技能限制
 
 - Codex 原生 skills 是加载到当前 Codex 会话里的提示约束，暂时不能在运行时硬性阻止本地文件编辑。
 - `spec-impl` 的设计目标是先把实现派发给 Claude Agent Teams，再由 Codex 做验证、验收和归档判断。
+- `spec-impl` 是编排技能。执行器只能把实现证据返回给编排端；不得运行 `spec-review`，不得编辑当前 change 的 `tasks.md`，不得勾选任务，不得 archive，也不得决定验收是否通过。
 - 如果当前会话或用户提示只说“继续实现”，但没有再次强调 Claude Agent Teams 和派发要求，Codex 仍可能尝试本地直接实现。
 - 为了让 `spec-impl` 更稳定地按设计运行，启动时请明确提到 Claude Agent Teams 和 `ccsm claude exec`。
 - 如果 Claude Agent Teams、`ccsm claude exec` 或 Claude 权限不可用，应把本次执行视为 blocked，或改用显式的 `/ccsm:team-*` 命令，不要静默 fallback 成 Codex 本地实现。

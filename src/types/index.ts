@@ -8,6 +8,15 @@ export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
 
 export type RoutingStrategy = 'parallel' | 'fallback' | 'round-robin'
 
+export type SkillRole = 'orchestration' | 'execution' | 'shared'
+
+export interface SkillInstallSummary {
+  role: SkillRole
+  names: string[]
+  destinationHost: HostRuntime
+  destinationPath: string
+}
+
 export interface ModelRouting {
   frontend: {
     models: ModelType[]
@@ -88,6 +97,8 @@ export interface InstallResult {
   installedPrompts: string[]
   installedSkills?: number
   installedCodexSkills?: string[]
+  installedExecutionSkills?: string[]
+  skillRoleSummary?: SkillInstallSummary[]
   installedSkillCommands?: number
   installedRules?: boolean
   errors: string[]

@@ -228,6 +228,10 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
     const result = await installWorkflows(selectedWorkflows, installDir, options.force, {
       routing,
+      ownership: {
+        orchestrator,
+        executionHost,
+      },
       mcpProvider,
       skipImpeccable,
       claudeHomeDir: getHostHomeDir('claude'),
@@ -282,13 +286,44 @@ export async function init(options: InitOptions = {}): Promise<void> {
       console.log(ansis.gray('       → ~/.ccsm/skills/ccsm/'))
     }
 
-    if (result.installedCodexSkills && result.installedCodexSkills.length > 0) {
+    if (result.skillRoleSummary && result.skillRoleSummary.length > 0) {
+      const uniqueSummaries = result.skillRoleSummary.filter((summary, index, all) => {
+        const key = JSON.stringify({
+          role: summary.role,
+          names: [...summary.names],
+          destinationHost: summary.destinationHost,
+          destinationPath: summary.destinationPath.replace(/\\/g, '/'),
+        })
+        return index === all.findIndex(candidate =>
+          JSON.stringify({
+            role: candidate.role,
+            names: [...candidate.names],
+            destinationHost: candidate.destinationHost,
+            destinationPath: candidate.destinationPath.replace(/\\/g, '/'),
+          }) === key,
+        )
+      })
+      console.log()
+      console.log(ansis.cyan('  Workflow skills by role:'))
+      for (const summary of uniqueSummaries) {
+        console.log(`    ${ansis.green('✓')} [${summary.role}] ${summary.names.join(', ')}`)
+        console.log(`       ${ansis.gray('→')} ${summary.destinationHost}:${summary.destinationPath}`)
+      }
+    } else if (result.installedCodexSkills && result.installedCodexSkills.length > 0) {
       console.log()
       console.log(ansis.cyan('  Codex workflow skills:'))
       for (const skill of result.installedCodexSkills) {
         console.log(`    ${ansis.green('✓')} ${skill}`)
       }
       console.log(ansis.gray('       → ~/.codex/skills/'))
+    }
+
+    if (result.installedExecutionSkills && result.installedExecutionSkills.length > 0) {
+      console.log()
+      console.log(ansis.cyan('  Execution skills:'))
+      for (const skill of result.installedExecutionSkills) {
+        console.log(`    ${ansis.green('✓')} ${skill}`)
+      }
     }
 
     if (result.installedRules) {

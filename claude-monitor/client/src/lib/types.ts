@@ -137,6 +137,8 @@ export interface SelectableProjectRoot {
   label: string;
   root: string;
   source: string;
+  branch?: string;
+  worktreeLabel?: string;
 }
 
 export interface OpenSpecWorkspaceInfo {

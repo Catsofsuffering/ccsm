@@ -11,7 +11,9 @@ export const CANONICAL_CODEX_SKILL_NAMES = [
   'spec-impl',
   'spec-review',
 ] as const
+export const EXECUTION_CODEX_SKILL_NAMES = [] as const
 export const MANAGED_CODEX_SKILL_MARKER = '<!-- CCSM-MANAGED-CODEX-WORKFLOW-SKILL -->'
+export const MANAGED_EXECUTION_SKILL_MARKER = '<!-- CCSM-MANAGED-EXECUTION-SKILL -->'
 export const DEPRECATED_PACKAGE_NAMES = [
   'ccsm-workflow',
   'ccgs-workflow',

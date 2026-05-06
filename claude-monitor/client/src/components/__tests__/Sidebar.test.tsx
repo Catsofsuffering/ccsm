@@ -157,7 +157,103 @@ describe("Sidebar", () => {
     // Verify updateOpenSpecWorkspace was called with the correct root
     expect(api.settings.updateOpenSpecWorkspace).toHaveBeenCalledWith("B:\\project\\second");
 
-    // Verify page reload was triggered
-    expect(mockLocation.reload).toHaveBeenCalled();
+    // The sidebar notifies project-scoped pages without forcing a full reload.
+    expect(mockLocation.reload).not.toHaveBeenCalled();
+  });
+
+  it("should show distinguishable labels for roots with the same basename", async () => {
+    vi.mocked(api.settings.info).mockResolvedValue({
+      db: { path: "", size: 0, counts: {} },
+      hooks: { installed: false, path: "", hooks: {} },
+      server: { uptime: 0, node_version: "v22.0.0", platform: "win32", ws_connections: 0 },
+      openspec: {
+        workspaceRoot: "B:\\project\\ccs",
+        source: "active",
+        activeWorkspaceRoot: "B:\\project\\ccs",
+        detectedWorkspaceRoots: ["B:\\project\\ccs", "B:\\worktrees\\ccs"],
+        selectableProjectRoots: [
+          { label: "ccs (project)", root: "B:\\project\\ccs", source: "active" },
+          { label: "ccs (worktrees)", root: "B:\\worktrees\\ccs", source: "sessions" },
+        ],
+      },
+    });
+
+    renderSidebar(true);
+
+    expect(await screen.findByText("Project: ccs")).toBeInTheDocument();
+
+    const projectButton = await screen.findByText("Project: ccs");
+    await act(async () => {
+      projectButton.click();
+    });
+
+    expect(await screen.findByText("ccs (project)")).toBeInTheDocument();
+    expect(await screen.findByText("ccs (worktrees)")).toBeInTheDocument();
+  });
+
+  it("should display worktree identity in sidebar", async () => {
+    vi.mocked(api.settings.info).mockResolvedValue({
+      db: { path: "", size: 0, counts: {} },
+      hooks: { installed: false, path: "", hooks: {} },
+      server: { uptime: 0, node_version: "v22.0.0", platform: "win32", ws_connections: 0 },
+      openspec: {
+        workspaceRoot: "B:\\project\\ccs",
+        source: "active",
+        activeWorkspaceRoot: "B:\\project\\ccs",
+        detectedWorkspaceRoots: ["B:\\project\\ccs"],
+        selectableProjectRoots: [
+          { label: "ccs (project)", root: "B:\\project\\ccs", source: "active" },
+        ],
+      },
+    });
+
+    renderSidebar(true);
+
+    // Worktree identity should be displayed (derived from parent directory)
+    expect(await screen.findByText("project")).toBeInTheDocument();
+  });
+
+  it("should prefer branch field over derived worktree identity", async () => {
+    vi.mocked(api.settings.info).mockResolvedValue({
+      db: { path: "", size: 0, counts: {} },
+      hooks: { installed: false, path: "", hooks: {} },
+      server: { uptime: 0, node_version: "v22.0.0", platform: "win32", ws_connections: 0 },
+      openspec: {
+        workspaceRoot: "B:\\project\\ccs",
+        source: "active",
+        activeWorkspaceRoot: "B:\\project\\ccs",
+        detectedWorkspaceRoots: ["B:\\project\\ccs"],
+        selectableProjectRoots: [
+          { label: "ccs", root: "B:\\project\\ccs", source: "active", branch: "main" },
+        ],
+      },
+    });
+
+    renderSidebar(true);
+
+    // Should show the branch name
+    expect(await screen.findByText("main")).toBeInTheDocument();
+  });
+
+  it("should prefer worktreeLabel over derived identity when branch unavailable", async () => {
+    vi.mocked(api.settings.info).mockResolvedValue({
+      db: { path: "", size: 0, counts: {} },
+      hooks: { installed: false, path: "", hooks: {} },
+      server: { uptime: 0, node_version: "v22.0.0", platform: "win32", ws_connections: 0 },
+      openspec: {
+        workspaceRoot: "B:\\project\\ccs",
+        source: "active",
+        activeWorkspaceRoot: "B:\\project\\ccs",
+        detectedWorkspaceRoots: ["B:\\project\\ccs"],
+        selectableProjectRoots: [
+          { label: "ccs", root: "B:\\project\\ccs", source: "active", worktreeLabel: "feature-x" },
+        ],
+      },
+    });
+
+    renderSidebar(true);
+
+    // Should show the worktreeLabel
+    expect(await screen.findByText("feature-x")).toBeInTheDocument();
   });
 });

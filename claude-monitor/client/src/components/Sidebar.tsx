@@ -50,6 +50,21 @@ function workspaceLabel(workspaceRoot: string | null): string | null {
   return label ?? null;
 }
 
+/**
+ * Derives a concise worktree identity from a root path using bounded local evidence.
+ * Uses parent directory segment (no Git scanning) as worktree identifier.
+ */
+function deriveWorktreeIdentity(root: string): string {
+  const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  if (parts.length >= 2) {
+    const parentDir = parts[parts.length - 2];
+    if (parentDir) return parentDir;
+  }
+
+  const fallback = parts[parts.length - 1];
+  return fallback || root;
+}
+
 function loadCollapsed(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY) === "true";
@@ -160,6 +175,15 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
                     : "Project: workspace not resolved"}
                 </p>
               )}
+              {currentWorkspace && !projectSelectorOpen && (() => {
+                const activeProject = selectableProjects.find(p => p.root === currentWorkspace);
+                const worktreeIdentity = activeProject?.branch
+                  || activeProject?.worktreeLabel
+                  || deriveWorktreeIdentity(currentWorkspace);
+                return (
+                  <p className="truncate text-[10px] text-gray-600">{worktreeIdentity}</p>
+                );
+              })()}
               {currentWorkspace && !projectSelectorOpen && (
                 <p className="truncate text-[10px] text-gray-600">{currentWorkspace}</p>
               )}
@@ -180,7 +204,14 @@ export function Sidebar({ wsConnected, collapsed, onToggle, theme, onThemeToggle
                   project.root === currentWorkspace ? "text-accent" : "text-gray-400"
                 }`}
               >
-                <span className="flex-1 truncate">{project.label}</span>
+                <span className="flex-1 truncate">
+                  <span>{project.label}</span>
+                  {(project.branch || project.worktreeLabel) && (
+                    <span className="ml-1 text-[10px] text-gray-500">
+                      ({project.branch || project.worktreeLabel})
+                    </span>
+                  )}
+                </span>
                 {project.root === currentWorkspace && <Check className="w-3 h-3 flex-shrink-0" />}
                 <span className="text-[10px] text-gray-600 truncate">{project.source}</span>
               </button>

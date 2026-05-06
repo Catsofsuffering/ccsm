@@ -84,4 +84,5 @@ description: "Claude Agent Teams 执行 Codex 下发的并行任务，不负责�
 - [ ] unresolved issues 已回传给 Codex
 - [ ] 未执行最终 archive
 - [ ] Return Packet 内容聚焦于执行结果摘要，与 monitor 的终端状态无冲突
+- [ ] Execution workers did not run `spec-review`, edit active change `tasks.md`, mark OpenSpec tasks complete, archive, or decide acceptance readiness
 <!-- CCG:TEAM:EXEC:END -->

@@ -5,6 +5,7 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
 **Core Philosophy**
 - Codex 负责推进 change、分发执行、回收结果、测试验收、决定 archive。
 - Claude 负责执行，不负责最终验收，不负责最终归档决策。
+- `spec-impl` is an orchestration skill: execution workers must not run `spec-review`, edit active change `tasks.md`, mark OpenSpec tasks complete, archive, or decide acceptance readiness.
 - 验收失败时，必须形成明确 rework packet 并打回执行层。
 
 **Guardrails**
@@ -35,6 +36,7 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
 4. 调度 Claude 执行
    - 如果还没有执行计划，先运行 `/ccsm:team-plan`，基于 handoff contract 生成 Claude Agent Teams 计划。
    - 然后运行 `/ccsm:team-exec` 让 Claude Agent Teams 干活。
+   - Execution packet must explicitly tell Claude workers to return evidence only; task checkbox updates, `spec-review`, acceptance, and archive remain Codex-owned.
    - Claude 返回后，必须回收一份 return packet，至少包含：
      - changed files
      - tests run

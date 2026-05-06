@@ -1,4 +1,4 @@
-import type { InstallResult } from '../types'
+import type { HostRuntime, InstallResult, ModelType, SkillRole } from '../types'
 import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { basename, join } from 'pathe'
@@ -22,7 +22,9 @@ import {
   DEPRECATED_CODEX_SKILL_NAMES,
   DEPRECATED_HOST_NAMESPACES,
   DEPRECATED_RULE_FILES,
+  EXECUTION_CODEX_SKILL_NAMES,
   MANAGED_CODEX_SKILL_MARKER,
+  MANAGED_EXECUTION_SKILL_MARKER,
 } from './identity'
 import {
   injectConfigVariables,
@@ -77,6 +79,10 @@ interface InstallConfig {
     backend: { models: string[], primary: string }
     review: { models: string[] }
   }
+  ownership?: {
+    orchestrator: ModelType
+    executionHost: HostRuntime
+  }
   mcpProvider: string
   skipImpeccable?: boolean
 }
@@ -87,10 +93,40 @@ interface InstallContext {
   canonicalHomeDir: string
   codexHomeDir: string
   codexSkillConflicts: Set<string>
+  executionHomeDir: string
+  executionSkillConflicts: Set<string>
   force: boolean
   config: InstallConfig
   templateDir: string
   result: InstallResult
+}
+
+function appendSkillRoleSummary(
+  result: InstallResult,
+  summary: {
+    role: SkillRole
+    names: string[]
+    destinationHost: HostRuntime
+    destinationPath: string
+  },
+): void {
+  result.skillRoleSummary ||= []
+  const key = JSON.stringify({
+    role: summary.role,
+    names: [...summary.names],
+    destinationHost: summary.destinationHost,
+    destinationPath: summary.destinationPath.replace(/\\/g, '/'),
+  })
+  const exists = result.skillRoleSummary.some(existing =>
+    JSON.stringify({
+      role: existing.role,
+      names: [...existing.names],
+      destinationHost: existing.destinationHost,
+      destinationPath: existing.destinationPath.replace(/\\/g, '/'),
+    }) === key,
+  )
+  if (!exists)
+    result.skillRoleSummary.push(summary)
 }
 
 function normalizeManagedCodexSkillContent(content: string): string {
@@ -113,6 +149,31 @@ async function isManagedCodexSkill(skillFile: string, expectedContent?: string):
 
   if (expectedContent) {
     return normalizeManagedCodexSkillContent(content) === normalizeManagedCodexSkillContent(expectedContent)
+  }
+
+  return false
+}
+
+function normalizeManagedExecutionSkillContent(content: string): string {
+  return content.replace(/\r\n/g, '\n').trimEnd()
+}
+
+function markManagedExecutionSkill(content: string): string {
+  if (content.includes(MANAGED_EXECUTION_SKILL_MARKER))
+    return content
+  return `${content.trimEnd()}\n\n${MANAGED_EXECUTION_SKILL_MARKER}\n`
+}
+
+async function isManagedExecutionSkill(skillFile: string, expectedContent?: string): Promise<boolean> {
+  if (!(await fs.pathExists(skillFile)))
+    return false
+
+  const content = await fs.readFile(skillFile, 'utf-8')
+  if (content.includes(MANAGED_EXECUTION_SKILL_MARKER))
+    return true
+
+  if (expectedContent) {
+    return normalizeManagedExecutionSkillContent(content) === normalizeManagedExecutionSkillContent(expectedContent)
   }
 
   return false
@@ -349,7 +410,9 @@ async function installSkillFiles(ctx: InstallContext): Promise<void> {
 
 async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
   const skillsTemplateDir = join(ctx.templateDir, 'codex-skills')
-  const codexSkillsDir = join(ctx.codexHomeDir, 'skills')
+  const orchestratorHost = ctx.config.ownership?.orchestrator || 'codex'
+  const orchestratorHomeDir = orchestratorHost === 'codex' ? ctx.codexHomeDir : ctx.claudeHomeDir
+  const orchestratorSkillsDir = join(orchestratorHomeDir, 'skills')
 
   if (!(await fs.pathExists(skillsTemplateDir))) {
     ctx.result.errors.push(`Codex skills template directory not found: ${skillsTemplateDir}`)
@@ -358,7 +421,7 @@ async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
   }
 
   try {
-    await fs.ensureDir(codexSkillsDir)
+    await fs.ensureDir(orchestratorSkillsDir)
     const installed: string[] = []
 
     for (const skillName of CANONICAL_CODEX_SKILL_NAMES) {
@@ -377,7 +440,7 @@ async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
         codexHomeDir: ctx.codexHomeDir,
         canonicalHomeDir: ctx.canonicalHomeDir,
       })
-      const destDir = join(codexSkillsDir, skillName)
+      const destDir = join(orchestratorSkillsDir, skillName)
       const destSkillFile = join(destDir, 'SKILL.md')
       if (await fs.pathExists(destDir) && !await isManagedCodexSkill(destSkillFile, content)) {
         ctx.result.errors.push(`Codex workflow skill conflict: ${skillName} already exists and is not managed by CCSM`)
@@ -393,9 +456,77 @@ async function installCodexWorkflowSkills(ctx: InstallContext): Promise<void> {
     }
 
     ctx.result.installedCodexSkills = installed
+    if (installed.length > 0) {
+      appendSkillRoleSummary(ctx.result, {
+        role: 'orchestration' as SkillRole,
+        names: [...installed],
+        destinationHost: orchestratorHost,
+        destinationPath: orchestratorSkillsDir,
+      })
+    }
   }
   catch (error) {
     ctx.result.errors.push(`Failed to install Codex workflow skills: ${error}`)
+    ctx.result.success = false
+  }
+}
+
+async function installExecutionSkills(ctx: InstallContext): Promise<void> {
+  const skillsTemplateDir = join(ctx.templateDir, 'codex-skills', 'execution')
+  const executionSkillsDir = join(ctx.executionHomeDir, 'skills')
+
+  if (!(await fs.pathExists(skillsTemplateDir))) {
+    return
+  }
+
+  try {
+    await fs.ensureDir(executionSkillsDir)
+    const installed: string[] = []
+
+    for (const skillName of EXECUTION_CODEX_SKILL_NAMES) {
+      const srcDir = join(skillsTemplateDir, skillName)
+      const skillFile = join(srcDir, 'SKILL.md')
+      if (!(await fs.pathExists(skillFile))) {
+        ctx.result.errors.push(`Missing execution skill template: ${skillFile}`)
+        ctx.result.success = false
+        continue
+      }
+
+      let content = await fs.readFile(skillFile, 'utf-8')
+      content = injectConfigVariables(content, ctx.config)
+      content = replaceHomePathsInTemplate(content, {
+        claudeHomeDir: ctx.claudeHomeDir,
+        codexHomeDir: ctx.codexHomeDir,
+        canonicalHomeDir: ctx.canonicalHomeDir,
+      })
+      const destDir = join(executionSkillsDir, skillName)
+      const destSkillFile = join(destDir, 'SKILL.md')
+      if (await fs.pathExists(destDir) && !await isManagedExecutionSkill(destSkillFile, content)) {
+        ctx.result.errors.push(`Execution skill conflict: ${skillName} already exists and is not managed by CCSM`)
+        ctx.result.success = false
+        ctx.executionSkillConflicts.add(skillName)
+        continue
+      }
+
+      await fs.ensureDir(destDir)
+      content = markManagedExecutionSkill(content)
+      await fs.writeFile(destSkillFile, content, 'utf-8')
+      installed.push(skillName)
+    }
+
+    ctx.result.installedExecutionSkills = installed
+    if (installed.length > 0) {
+      const executionHost: HostRuntime = ctx.executionHomeDir === ctx.claudeHomeDir ? 'claude' : 'codex'
+      appendSkillRoleSummary(ctx.result, {
+        role: 'execution' as SkillRole,
+        names: [...installed],
+        destinationHost: executionHost,
+        destinationPath: executionSkillsDir,
+      })
+    }
+  }
+  catch (error) {
+    ctx.result.errors.push(`Failed to install execution skills: ${error}`)
     ctx.result.success = false
   }
 }
@@ -455,6 +586,9 @@ async function installRuleFiles(ctx: InstallContext): Promise<void> {
 }
 
 async function cleanupDeprecatedEntryPoints(ctx: InstallContext): Promise<void> {
+  const orchestratorHost = ctx.config.ownership?.orchestrator || 'codex'
+  const orchestratorHomeDir = orchestratorHost === 'codex' ? ctx.codexHomeDir : ctx.claudeHomeDir
+  const alternateHostHome = orchestratorHost === 'codex' ? ctx.claudeHomeDir : ctx.codexHomeDir
   const deprecatedCommandDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'commands', namespace))
   const deprecatedAgentDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'agents', namespace))
   const deprecatedSkillDirs = DEPRECATED_HOST_NAMESPACES.map(namespace => join(ctx.hostHomeDir, 'skills', namespace))
@@ -478,13 +612,46 @@ async function cleanupDeprecatedEntryPoints(ctx: InstallContext): Promise<void> 
     }
   }
 
-  for (const skillName of DEPRECATED_CODEX_SKILL_NAMES) {
-    const skillDir = join(ctx.codexHomeDir, 'skills', skillName)
-    const canonicalSkillName = DEPRECATED_CODEX_SKILL_NAME_MAP[skillName]
-    if (ctx.codexSkillConflicts.has(canonicalSkillName)) {
-      continue
+  // Keep the canonical slash-command/agent surface bound to the configured orchestrator host.
+  // In tests we may install commands into a sandbox root instead of an actual host home, so only
+  // clean the alternate host surface when commands are being installed into the orchestrator home.
+  if (ctx.hostHomeDir === orchestratorHomeDir) {
+    for (const staleDir of [
+      join(alternateHostHome, 'commands', CANONICAL_NAMESPACE),
+      join(alternateHostHome, 'agents', CANONICAL_NAMESPACE),
+    ]) {
+      if (await fs.pathExists(staleDir)) {
+        await fs.remove(staleDir)
+      }
     }
-    if (await fs.pathExists(skillDir)) {
+
+    for (const ruleFile of CANONICAL_RULE_FILES) {
+      const staleRulePath = join(alternateHostHome, 'rules', ruleFile)
+      if (await fs.pathExists(staleRulePath)) {
+        await fs.remove(staleRulePath)
+      }
+    }
+  }
+
+  for (const hostSkillsDir of [join(ctx.codexHomeDir, 'skills'), join(ctx.claudeHomeDir, 'skills')]) {
+    for (const skillName of DEPRECATED_CODEX_SKILL_NAMES) {
+      const skillDir = join(hostSkillsDir, skillName)
+      const canonicalSkillName = DEPRECATED_CODEX_SKILL_NAME_MAP[skillName]
+      if (ctx.codexSkillConflicts.has(canonicalSkillName)) {
+        continue
+      }
+      if (await fs.pathExists(skillDir)) {
+        await fs.remove(skillDir)
+      }
+    }
+  }
+
+  // Remove stale managed orchestration skills from the non-orchestrator host.
+  const alternateSkillsDir = join(alternateHostHome, 'skills')
+  for (const skillName of CANONICAL_CODEX_SKILL_NAMES) {
+    const skillDir = join(alternateSkillsDir, skillName)
+    const skillFile = join(skillDir, 'SKILL.md')
+    if (await fs.pathExists(skillDir) && await isManagedCodexSkill(skillFile)) {
       await fs.remove(skillDir)
     }
   }
@@ -501,6 +668,10 @@ export async function installWorkflows(
       backend?: { models?: string[], primary?: string }
       review?: { models?: string[] }
     }
+    ownership?: {
+      orchestrator: ModelType
+      executionHost: HostRuntime
+    }
     mcpProvider?: string
     skipImpeccable?: boolean
     claudeHomeDir?: string
@@ -508,12 +679,18 @@ export async function installWorkflows(
     canonicalHomeDir?: string
   },
 ): Promise<InstallResult> {
+  const ownership = config?.ownership || { orchestrator: 'codex' as const, executionHost: 'claude' as const }
+  const executionHost = ownership.executionHost
   const ctx: InstallContext = {
     hostHomeDir: installDir,
     claudeHomeDir: config?.claudeHomeDir || getHostHomeDir('claude'),
     canonicalHomeDir: config?.canonicalHomeDir || join(installDir, CANONICAL_RUNTIME_DIRNAME),
     codexHomeDir: config?.codexHomeDir || join(homedir(), '.codex'),
     codexSkillConflicts: new Set<string>(),
+    executionHomeDir: executionHost === 'claude'
+      ? (config?.claudeHomeDir || getHostHomeDir('claude'))
+      : (config?.codexHomeDir || join(homedir(), '.codex')),
+    executionSkillConflicts: new Set<string>(),
     force,
     config: {
       routing: config?.routing as InstallConfig['routing'] || {
@@ -522,6 +699,7 @@ export async function installWorkflows(
         backend: { models: ['codex'], primary: 'codex' },
         review: { models: ['codex'] },
       },
+      ownership,
       mcpProvider: config?.mcpProvider || 'skip',
       skipImpeccable: config?.skipImpeccable || false,
     },
@@ -531,6 +709,8 @@ export async function installWorkflows(
       installedCommands: [],
       installedPrompts: [],
       installedCodexSkills: [],
+      installedExecutionSkills: [],
+      skillRoleSummary: [],
       errors: [],
       configPath: '',
     },
@@ -552,6 +732,7 @@ export async function installWorkflows(
   await installPromptFiles(ctx)
   await installSkillFiles(ctx)
   await installCodexWorkflowSkills(ctx)
+  await installExecutionSkills(ctx)
   await installSkillGeneratedCommands(ctx)
   await installRuleFiles(ctx)
   await cleanupDeprecatedEntryPoints(ctx)
@@ -581,13 +762,14 @@ export interface UninstallResult {
   removedAgents: string[]
   removedSkills: string[]
   removedCodexSkills: string[]
+  removedExecutionSkills: string[]
   removedRules: boolean
   errors: string[]
 }
 
 export async function uninstallWorkflows(
   installDir: string,
-  options?: { codexHomeDir?: string, canonicalHomeDir?: string },
+  options?: { codexHomeDir?: string, claudeHomeDir?: string, canonicalHomeDir?: string },
 ): Promise<UninstallResult> {
   const result: UninstallResult = {
     success: true,
@@ -596,6 +778,7 @@ export async function uninstallWorkflows(
     removedAgents: [],
     removedSkills: [],
     removedCodexSkills: [],
+    removedExecutionSkills: [],
     removedRules: false,
     errors: [],
   }
@@ -618,7 +801,10 @@ export async function uninstallWorkflows(
     join(canonicalHomeDir, 'codex-monitor'),
   ]
   const runtimeFiles = [join(canonicalHomeDir, 'config.toml')]
-  const codexSkillsDir = join(options?.codexHomeDir || join(homedir(), '.codex'), 'skills')
+  const hostSkillDirs = Array.from(new Set([
+    join(options?.codexHomeDir || join(homedir(), '.codex'), 'skills'),
+    join(options?.claudeHomeDir || getHostHomeDir('claude'), 'skills'),
+  ]))
 
   for (const commandsDir of commandsDirs) {
     try {
@@ -653,18 +839,39 @@ export async function uninstallWorkflows(
     }
   }
 
-  for (const skillName of ALL_CODEX_SKILL_NAMES) {
-    const skillDir = join(codexSkillsDir, skillName)
-    const skillFile = join(skillDir, 'SKILL.md')
-    try {
-      if (await fs.pathExists(skillDir) && await isManagedCodexSkill(skillFile)) {
-        await fs.remove(skillDir)
-        result.removedCodexSkills.push(skillName)
+  for (const hostSkillsDir of hostSkillDirs) {
+    for (const skillName of ALL_CODEX_SKILL_NAMES) {
+      const skillDir = join(hostSkillsDir, skillName)
+      const skillFile = join(skillDir, 'SKILL.md')
+      try {
+        if (await fs.pathExists(skillDir) && await isManagedCodexSkill(skillFile)) {
+          await fs.remove(skillDir)
+          if (!result.removedCodexSkills.includes(skillName))
+            result.removedCodexSkills.push(skillName)
+        }
+      }
+      catch (error) {
+        result.errors.push(`Failed to remove Codex workflow skill ${skillName}: ${error}`)
+        result.success = false
       }
     }
-    catch (error) {
-      result.errors.push(`Failed to remove Codex workflow skill ${skillName}: ${error}`)
-      result.success = false
+  }
+
+  for (const hostSkillsDir of hostSkillDirs) {
+    for (const skillName of EXECUTION_CODEX_SKILL_NAMES) {
+      const skillDir = join(hostSkillsDir, skillName)
+      const skillFile = join(skillDir, 'SKILL.md')
+      try {
+        if (await fs.pathExists(skillDir) && await isManagedExecutionSkill(skillFile)) {
+          await fs.remove(skillDir)
+          if (!result.removedExecutionSkills.includes(skillName))
+            result.removedExecutionSkills.push(skillName)
+        }
+      }
+      catch (error) {
+        result.errors.push(`Failed to remove execution skill ${skillName}: ${error}`)
+        result.success = false
+      }
     }
   }
 
