@@ -10,6 +10,7 @@ export const CANONICAL_CODEX_SKILL_NAMES = [
   'spec-plan',
   'spec-impl',
   'spec-review',
+  'spec-fast',
 ] as const
 export const EXECUTION_CODEX_SKILL_NAMES = [] as const
 export const MANAGED_CODEX_SKILL_MARKER = '<!-- CCSM-MANAGED-CODEX-WORKFLOW-SKILL -->'

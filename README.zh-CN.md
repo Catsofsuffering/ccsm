@@ -89,6 +89,14 @@ openspec archive <change-id>
 /ccsm:spec-impl
 ```
 
+如果你希望用一个 Codex 原生编排入口，自动沿着 `spec-init -> spec-plan -> spec-impl -> spec-review` 持续推进，可以使用：
+
+```bash
+/ccsm:spec-fast
+```
+
+`spec-fast` 会从第一个缺失或 pending 的阶段继续推进，默认最多自动执行 2 轮 `spec-impl -> spec-review` 返工回路，并在 `archive-ready`、`blocked` 或 `retry-budget-exhausted` 处停止。第一版默认不会自动 archive。
+
 当前限制：Codex skills 仍然是提示层工作流约束，不是运行时强制门禁。使用 `spec-impl` 时，建议明确告诉 Codex 必须先通过 Claude Agent Teams 派发执行，并且在 `ccsm claude exec` 成功前不要本地改产品代码，例如：
 
 ```text
@@ -184,6 +192,7 @@ ccsm fix-mcp
 
 安装后还会提供这些技能：
 
+- `spec-fast`
 - `spec-init`
 - `spec-research`
 - `spec-plan`
@@ -197,6 +206,7 @@ ccsm fix-mcp
 - Codex 原生 skills 是加载到当前 Codex 会话里的提示约束，暂时不能在运行时硬性阻止本地文件编辑。
 - `spec-impl` 的设计目标是先把实现派发给 Claude Agent Teams，再由 Codex 做验证、验收和归档判断。
 - `spec-impl` 是编排技能。执行器只能把实现证据返回给编排端；不得运行 `spec-review`，不得编辑当前 change 的 `tasks.md`，不得勾选任务，不得 archive，也不得决定验收是否通过。
+- `spec-fast` 也是编排技能。它可以复用 `spec-impl` 与 `spec-review`，但不能绕过 OpenSpec artifacts，不能在派发 blocked 时静默退回 Codex 本地实现，也不能默认自动 archive。
 - 如果当前会话或用户提示只说“继续实现”，但没有再次强调 Claude Agent Teams 和派发要求，Codex 仍可能尝试本地直接实现。
 - 为了让 `spec-impl` 更稳定地按设计运行，启动时请明确提到 Claude Agent Teams 和 `ccsm claude exec`。
 - 如果 Claude Agent Teams、`ccsm claude exec` 或 Claude 权限不可用，应把本次执行视为 blocked，或改用显式的 `/ccsm:team-*` 命令，不要静默 fallback 成 Codex 本地实现。

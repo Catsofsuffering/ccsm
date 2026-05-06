@@ -41,6 +41,7 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
   cmd('spec-plan', 32, 'spec', '零决策规划', 'Spec Plan', 'Codex 收敛 proposal 并生成执行交接契约', 'Codex refines proposals into an execution-ready plan and handoff contract'),
   cmd('spec-impl', 33, 'spec', '规范驱动实现', 'Spec Implementation', 'Codex 调度 Claude 执行并决定验收与归档', 'Codex dispatches Claude execution, then verifies and decides acceptance and archive'),
   cmd('spec-review', 34, 'spec', '归档前审查', 'Spec Review', 'Codex 最终验收门禁，可结合多模型审查', 'Codex final acceptance gate with optional multi-model review'),
+  cmd('spec-fast', 35, 'spec', '快速规范编排', 'Spec Fast', 'Codex 自动推进 spec-init/spec-plan/spec-impl/spec-review', 'Codex auto-drives spec-init/spec-plan/spec-impl/spec-review'),
 ]
 
 const DEFAULT_COMMAND_IDS = WORKFLOW_CONFIGS.map(workflow => workflow.id)

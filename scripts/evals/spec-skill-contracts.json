@@ -73,5 +73,25 @@
     "mustNotContain": [
       "ccsm claude exec --prompt-file"
     ]
+  },
+  "spec-fast": {
+    "goal": "One Codex-native orchestration skill that advances a request through spec-init, spec-plan, spec-impl, and spec-review automatically with bounded rework loops, stopping at archive-ready by default.",
+    "mustContain": [
+      "Codex remains the orchestrator",
+      "spec-init",
+      "spec-plan",
+      "spec-impl",
+      "spec-review",
+      "archive-ready",
+      "retry-budget-exhausted",
+      "blocked",
+      "bounded",
+      "rework"
+    ],
+    "mustNotContain": [
+      "openspec archive <change-name>",
+      "Claude decides acceptance",
+      "bypassing OpenSpec artifacts"
+    ]
   }
 }

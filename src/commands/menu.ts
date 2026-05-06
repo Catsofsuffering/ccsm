@@ -251,6 +251,7 @@ function showHelp(): void {
 
   // OpenSpec Workflows
   section(i18n.t('menu:help.sections.opsx'))
+  cmd(`/${CANONICAL_NAMESPACE}:spec-fast`, isZh ? 'Codex 自动推进 spec-init/spec-plan/spec-impl/spec-review' : 'Codex auto-drives spec-init/spec-plan/spec-impl/spec-review')
   cmd(`/${CANONICAL_NAMESPACE}:spec-init`, i18n.t('menu:help.descriptions.specInit'))
   cmd(`/${CANONICAL_NAMESPACE}:spec-research`, i18n.t('menu:help.descriptions.specResearch'))
   cmd(`/${CANONICAL_NAMESPACE}:spec-plan`, isZh ? 'Codex 收敛 proposal 并生成执行交接契约' : 'Codex refines proposal and creates the execution handoff')

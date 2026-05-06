@@ -308,6 +308,59 @@ describe('skills namespace isolation', () => {
   })
 })
 
+describe('spec-fast orchestration skill', () => {
+  const tmpDir = join(tmpdir(), `ccsm-test-spec-fast-${Date.now()}`)
+  const codexHomeDir = join(tmpDir, '.codex-home')
+
+  afterAll(async () => {
+    await fs.remove(tmpDir)
+  })
+
+  it('spec-fast appears in installed Codex-native workflow skill set', { timeout: 60_000 }, async () => {
+    const result = await installWorkflows([SAMPLE_WORKFLOW_ID], tmpDir, true, {
+      mcpProvider: 'skip',
+      codexHomeDir,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.installedCodexSkills).toContain('spec-fast')
+  })
+
+  it('spec-fast resumes from existing artifact state (does not always restart)', { timeout: 60_000 }, async () => {
+    await installWorkflows([SAMPLE_WORKFLOW_ID], tmpDir, true, {
+      mcpProvider: 'skip',
+      codexHomeDir,
+    })
+
+    const specFastSkill = await fs.readFile(join(codexHomeDir, 'skills', 'spec-fast', 'SKILL.md'), 'utf-8')
+    expect(specFastSkill).toContain('Resume from that phase')
+    expect(specFastSkill).toContain('Rework budget: 2 rounds')
+  })
+
+  it('spec-fast does not archive automatically by default (stops at archive-ready)', { timeout: 60_000 }, async () => {
+    await installWorkflows([SAMPLE_WORKFLOW_ID], tmpDir, true, {
+      mcpProvider: 'skip',
+      codexHomeDir,
+    })
+
+    const specFastSkill = await fs.readFile(join(codexHomeDir, 'skills', 'spec-fast', 'SKILL.md'), 'utf-8')
+    expect(specFastSkill).toContain('archive-ready')
+    expect(specFastSkill).toContain('Archive happens manually')
+  })
+
+  it('retry-budget and blocked outcomes are first-class outputs', { timeout: 60_000 }, async () => {
+    await installWorkflows([SAMPLE_WORKFLOW_ID], tmpDir, true, {
+      mcpProvider: 'skip',
+      codexHomeDir,
+    })
+
+    const specFastSkill = await fs.readFile(join(codexHomeDir, 'skills', 'spec-fast', 'SKILL.md'), 'utf-8')
+    expect(specFastSkill).toContain('retry-budget-exhausted')
+    expect(specFastSkill).toContain('retry-budget')
+    expect(specFastSkill).toContain('blocked')
+  })
+})
+
 describe('Codex workflow entrypoint', () => {
   const tmpDir = join(tmpdir(), `ccsm-test-codex-entry-${Date.now()}`)
   const codexHomeDir = join(tmpDir, '.codex-home')
@@ -331,6 +384,7 @@ describe('Codex workflow entrypoint', () => {
       'spec-plan',
       'spec-impl',
       'spec-review',
+      'spec-fast',
     ])
     expect(fs.existsSync(join(codexHomeDir, 'skills', 'spec-init', 'SKILL.md'))).toBe(true)
     expect(fs.existsSync(join(codexHomeDir, 'skills', 'spec-review', 'SKILL.md'))).toBe(true)
@@ -360,6 +414,7 @@ describe('Codex workflow entrypoint', () => {
       'spec-plan',
       'spec-impl',
       'spec-review',
+      'spec-fast',
     ])
   })
 
@@ -386,6 +441,7 @@ describe('Codex workflow entrypoint', () => {
         'spec-plan',
         'spec-impl',
         'spec-review',
+        'spec-fast',
       ])
       expect(fs.existsSync(join(claudeOrchestratorClaudeHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(true)
       expect(fs.existsSync(join(claudeOrchestratorClaudeHome, 'skills', 'spec-review', 'SKILL.md'))).toBe(true)
@@ -400,6 +456,7 @@ describe('Codex workflow entrypoint', () => {
         'spec-plan',
         'spec-impl',
         'spec-review',
+        'spec-fast',
       ])
       expect(result.installedExecutionSkills).toEqual([])
     }
@@ -495,6 +552,7 @@ describe('Codex workflow entrypoint', () => {
         'spec-plan',
         'spec-impl',
         'spec-review',
+        'spec-fast',
       ])
       expect(fs.existsSync(join(userSkillDir, 'SKILL.md'))).toBe(true)
     }
@@ -532,6 +590,7 @@ describe('Codex workflow entrypoint', () => {
         'spec-plan',
         'spec-impl',
         'spec-review',
+        'spec-fast',
       ])
       expect(fs.existsSync(join(uninstallClaudeHome, 'skills', 'spec-init', 'SKILL.md'))).toBe(false)
     }

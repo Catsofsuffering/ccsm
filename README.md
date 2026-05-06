@@ -89,6 +89,14 @@ If you want the managed shortcut for Codex dispatch plus Claude execution plus C
 /ccsm:spec-impl
 ```
 
+If you want one Codex-native orchestration entrypoint to keep moving through `spec-init -> spec-plan -> spec-impl -> spec-review` automatically, use:
+
+```bash
+/ccsm:spec-fast
+```
+
+`spec-fast` resumes from the first missing or pending phase, allows at most 2 automatic `spec-impl -> spec-review` rework rounds, and stops at `archive-ready`, `blocked`, or `retry-budget-exhausted`. It does not archive automatically by default.
+
 Current limitation: Codex skills are prompt-level workflow contracts, not a hard runtime gate. When invoking `spec-impl`, explicitly tell Codex to dispatch through Claude Agent Teams and not to implement locally before `ccsm claude exec` succeeds, for example:
 
 ```text
@@ -184,6 +192,7 @@ The current install path keeps the workflow host-native while making `.ccsm` the
 
 After installation, CCSM also installs:
 
+- `spec-fast`
 - `spec-init`
 - `spec-research`
 - `spec-plan`
@@ -197,6 +206,7 @@ These let the primary workflow start directly from the configured orchestrator w
 - Codex-native skills are guidance loaded into the current Codex session; they do not yet enforce a runtime-level block on local file edits.
 - `spec-impl` is designed to dispatch implementation to Claude Agent Teams first, then keep verification and acceptance in Codex.
 - `spec-impl` is an orchestration skill. Execution workers must return evidence to the orchestrator; they must not run `spec-review`, edit active change `tasks.md`, mark tasks complete, archive, or decide acceptance readiness.
+- `spec-fast` is also an orchestration skill. It may reuse `spec-impl` and `spec-review`, but it must not bypass OpenSpec artifacts, silently fall back to local implementation when dispatch is blocked, or auto-archive by default.
 - If the active session or user prompt says “continue implementation” without restating the dispatch requirement, Codex may still try to implement locally.
 - For reliable `spec-impl` behavior, explicitly mention Claude Agent Teams and `ccsm claude exec` when starting the skill.
 - If Claude Agent Teams, `ccsm claude exec`, or Claude permissions are unavailable, treat the run as blocked or use the explicit `/ccsm:team-*` commands instead of silently falling back to local Codex implementation.
