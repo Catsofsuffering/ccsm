@@ -34,6 +34,7 @@ function inferWorkerRuntime(model) {
   const value = String(model || "").toLowerCase();
   if (!value) return "unknown";
   if (value.includes("claude")) return "claude";
+  if (value.includes("opencode")) return "opencode";
   if (value.includes("codex") || value.includes("gpt") || value.startsWith("o")) return "codex";
   return "generic";
 }

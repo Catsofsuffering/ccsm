@@ -452,6 +452,17 @@ const stmts = {
       COALESCE(SUM(cache_write_tokens + baseline_cache_write), 0) as total_cache_write
     FROM token_usage
   `),
+  getTokenTotalsByModel: db.prepare(`
+    SELECT
+      model,
+      COALESCE(SUM(input_tokens + baseline_input), 0) as total_input,
+      COALESCE(SUM(output_tokens + baseline_output), 0) as total_output,
+      COALESCE(SUM(cache_read_tokens + baseline_cache_read), 0) as total_cache_read,
+      COALESCE(SUM(cache_write_tokens + baseline_cache_write), 0) as total_cache_write
+    FROM token_usage
+    GROUP BY model
+    ORDER BY (total_input + total_output) DESC
+  `),
   getTokensBySession: db.prepare(
     `SELECT model,
       input_tokens + baseline_input as input_tokens,

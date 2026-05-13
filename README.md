@@ -23,6 +23,20 @@ The maintained path in this fork is:
 
 MCP, extra skills, and Gemini can still be used, but they are optional layers rather than the default workflow.
 
+## Acceptance Topology
+
+The acceptance topology defines who does what after execution returns. It is distinct from execution routing.
+
+**Topology roles:**
+
+- **Decision owner** (Codex): makes the final acceptance and archive decision. This is never delegated to execution workers.
+- **Optional acceptance reviewer** (e.g., opencode): provides analysis that informs the decision, but the orchestrator makes the call. opencode is always additive, never the primary path.
+- **Execution worker** (Claude Agent Teams): implements bounded work and returns evidence. Workers never decide acceptance, never run `spec-review`, and never archive.
+
+**Flow:** orchestrator -> execution worker -> (optional reviewer) -> acceptance decision -> archive
+
+Archive is an explicit high-trust action owned by the decision owner. The execution path and the acceptance path are separate concerns.
+
 ## Install
 
 ### Prerequisites

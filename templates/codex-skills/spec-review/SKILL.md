@@ -12,6 +12,16 @@ Review the change from Codex before archive.
 - Review compares the implementation against proposal, design, tasks, and verification evidence.
 - Archive only happens after Codex accepts the result.
 
+**Acceptance topology**
+
+The acceptance topology is distinct from execution routing. The topology roles are:
+
+- **Decision owner** (Codex): makes the final acceptance and archive decision. This is never delegated.
+- **Optional acceptance reviewer** (e.g., opencode): provides analysis that informs the decision, but the orchestrator makes the call. opencode is always additive, never the primary path.
+- **Execution worker**: implements bounded work and returns evidence. Workers never decide acceptance, never run `spec-review`, and never archive.
+
+Archive is an explicit high-trust action owned by the decision owner. The execution path (orchestrator to execution worker) and the acceptance path (decision owner, optional reviewer) are separate concerns.
+
 **Steps**
 
 1. Select the active change with `openspec status --change "<change-name>" --json`.

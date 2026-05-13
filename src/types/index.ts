@@ -1,8 +1,20 @@
 export type SupportedLang = 'zh-CN' | 'en'
 
-export type ModelType = 'codex' | 'claude'
+export type ModelType = 'codex' | 'claude' | 'opencode'
 
 export type HostRuntime = 'codex' | 'claude'
+
+// Represents a role in the acceptance topology
+export type WorkflowRole = 'orchestrator' | 'execution' | 'acceptance-reviewer' | 'acceptance-owner'
+
+// Represents a provider that can participate in the workflow
+export type ModelProvider = 'codex' | 'claude' | 'opencode'
+
+// The acceptance topology config
+export interface AcceptanceTopology {
+  acceptanceOwner: ModelType // who makes the final acceptance decision (default: orchestrator)
+  acceptanceReviewer?: ModelType // optional pre-acceptance reviewer (e.g., opencode)
+}
 
 export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
 
@@ -42,9 +54,11 @@ export interface CcgConfig {
     createdAt: string
   }
   ownership?: {
-    orchestrator: ModelType
+    orchestrator: HostRuntime // which host runs the orchestrator (determines home directory)
     executionHost: HostRuntime
-    acceptance: ModelType
+    acceptance: ModelType // legacy: maps to acceptanceOwner for backward compat
+    acceptanceOwner: ModelType // who makes the final acceptance decision
+    acceptanceReviewer?: ModelType // optional pre-acceptance reviewer (e.g., opencode)
   }
   routing: ModelRouting
   workflows: {

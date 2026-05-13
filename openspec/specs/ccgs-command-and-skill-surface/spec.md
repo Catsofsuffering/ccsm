@@ -1,9 +1,7 @@
 ## Purpose
 
 Define the maintained command, skill, template, and prompt surface so `CCGS` remains the canonical namespace while compatibility aliases stay bounded.
-
 ## Requirements
-
 ### Requirement: The maintained default command and skill namespace SHALL be CCGS-owned
 
 The system SHALL expose the maintained slash-command surface under the canonical product namespace while allowing the Codex-native primary skill surface to use direct top-level OpenSpec driver names.
@@ -78,3 +76,17 @@ The maintained package SHALL bundle prompt and role assets only for the maintain
 
 - **WHEN** maintained templates or prompts mention optional secondary analysis or review perspectives
 - **THEN** they SHALL not depend on Gemini-specific prompt assets being part of the default packaged surface
+
+### Requirement: Workflow guidance SHALL describe configurable acceptance topology
+The maintained command and skill surface SHALL describe acceptance topology separately from execution topology so users can understand optional reviewer participation without losing the maintained orchestration story.
+
+#### Scenario: User reads maintained workflow guidance
+- **WHEN** generated setup guidance, command help, or skill text describes workflow responsibilities
+- **THEN** it SHALL distinguish orchestration, execution, and optional acceptance-review roles
+- **AND** it SHALL keep the maintained default story anchored in a Codex-led orchestration path
+
+#### Scenario: User reads optional acceptance-review guidance
+- **WHEN** the product describes an optional reviewer such as `opencode`
+- **THEN** the guidance SHALL present that reviewer as an additive acceptance-path participant
+- **AND** it SHALL not imply that the reviewer replaces the default orchestrator-owned final safety boundary
+

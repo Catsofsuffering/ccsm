@@ -137,15 +137,29 @@ export function createDefaultConfig(options: {
   installDir?: string
   canonicalHome?: string
   ownership?: {
-    orchestrator: ModelType
+    orchestrator: HostRuntime
     executionHost: HostRuntime
-    acceptance: ModelType
+    acceptance?: ModelType // legacy: maps to acceptanceOwner
+    acceptanceOwner?: ModelType // who makes the final acceptance decision
+    acceptanceReviewer?: ModelType // optional pre-acceptance reviewer
   }
 }): CcgConfig {
-  const ownership = options.ownership || {
+  // Build ownership with backward compatibility:
+  // - acceptance (legacy) maps to acceptanceOwner
+  // - Default: acceptanceOwner = orchestrator, acceptanceReviewer = undefined
+  const inputOwnership: NonNullable<typeof options.ownership> = options.ownership || {
     orchestrator: 'codex',
     executionHost: 'claude',
-    acceptance: 'codex',
+  }
+  const ownership = {
+    orchestrator: inputOwnership.orchestrator || 'codex',
+    executionHost: inputOwnership.executionHost || 'claude',
+    // acceptanceOwner: if explicitly set, use it; otherwise fall back to legacy acceptance, then to orchestrator
+    acceptanceOwner: inputOwnership.acceptanceOwner || inputOwnership.acceptance || inputOwnership.orchestrator || 'codex',
+    // acceptanceReviewer is optional and undefined by default
+    acceptanceReviewer: inputOwnership.acceptanceReviewer,
+    // legacy acceptance field kept for backward compat
+    acceptance: inputOwnership.acceptance || inputOwnership.acceptanceOwner || inputOwnership.orchestrator || 'codex',
   }
 
   const hostHome = options.installDir || getHostHomeDir(ownership.orchestrator)

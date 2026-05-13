@@ -80,7 +80,7 @@ interface InstallConfig {
     review: { models: string[] }
   }
   ownership?: {
-    orchestrator: ModelType
+    orchestrator: HostRuntime
     executionHost: HostRuntime
   }
   mcpProvider: string
@@ -669,7 +669,7 @@ export async function installWorkflows(
       review?: { models?: string[] }
     }
     ownership?: {
-      orchestrator: ModelType
+      orchestrator: HostRuntime
       executionHost: HostRuntime
     }
     mcpProvider?: string

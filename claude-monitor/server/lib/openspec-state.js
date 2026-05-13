@@ -848,6 +848,13 @@ function getBestKnownModelForSession(sessionId) {
             return "minimax";
           }
         }
+        // Check for opencode in agent metadata hints
+        if (meta && meta.agent) {
+          const agent = String(meta.agent).toLowerCase();
+          if (agent.includes("opencode")) {
+            return "opencode";
+          }
+        }
       } catch {
         // Ignore parse errors
       }

@@ -8,6 +8,16 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
 - `spec-impl` is an orchestration skill: execution workers must not run `spec-review`, edit active change `tasks.md`, mark OpenSpec tasks complete, archive, or decide acceptance readiness.
 - 验收失败时，必须形成明确 rework packet 并打回执行层。
 
+**Acceptance Topology（验收拓扑）**
+
+验收拓扑与执行路由是不同层次的概念。拓扑角色：
+
+- **决策owner（Decision owner）**：Codex 拥有 acceptance 和 archive 的最终决策权，从不委托给执行层。
+- **可选验收reviewer（Optional reviewer）**：例如 opencode 可以作为验收视角的补充，提供分析供决策参考，但拍板权在编排侧。opencode 始终是增值项，不是主路径。
+- **执行worker**：只负责在边界内实现并返回证据，不做 acceptance 判断，不跑 `spec-review`，不决定 archive。
+
+Archive 是显式的高信任操作，由决策owner持有。执行路径（orchestrator → execution worker）和验收路径（decision owner、可选reviewer）是分开的。
+
 **Guardrails**
 - 不直接把外部模型输出当成最终实现。
 - 不在验收通过前 archive。

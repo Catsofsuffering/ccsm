@@ -455,11 +455,71 @@ describe("Sessions API", () => {
     const res = await patch("/api/sessions/nonexistent", { status: "error" });
     assert.equal(res.status, 404);
   });
-});
 
-// ============================================================
-// Agents CRUD
-// ============================================================
+  it("GET /api/sessions returns attributedModel resolved from token_usage", async () => {
+    // Create a session with model "unknown" (no direct evidence)
+    const sessionId = `sess-attr-list-${Date.now()}`;
+    await post("/api/sessions", {
+      id: sessionId,
+      name: "Attributed Model Test",
+      model: "unknown",
+    });
+
+    // Insert token_usage with model evidence
+    db.prepare(
+      `INSERT INTO token_usage (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, "minimax", 100, 50, 10, 5);
+
+    const res = await fetch("/api/sessions");
+    assert.equal(res.status, 200);
+
+    // Find our session in the list
+    const ourSession = res.body.sessions.find((s) => s.id === sessionId);
+    assert.ok(ourSession, "Session should be in list");
+    assert.equal(ourSession.attributedModel, "minimax", "attributedModel should resolve from token_usage");
+    // Original model should remain unchanged
+    assert.equal(ourSession.model, "unknown");
+  });
+
+  it("GET /api/sessions returns original model when no token_usage evidence exists", async () => {
+    // Create a session with no token_usage rows
+    const sessionId = `sess-no-evidence-${Date.now()}`;
+    await post("/api/sessions", {
+      id: sessionId,
+      name: "No Evidence Test",
+      model: "claude-sonnet",
+    });
+
+    const res = await fetch("/api/sessions");
+    assert.equal(res.status, 200);
+
+    const ourSession = res.body.sessions.find((s) => s.id === sessionId);
+    assert.ok(ourSession, "Session should be in list");
+    assert.equal(ourSession.attributedModel, "claude-sonnet", "attributedModel falls back to original model");
+  });
+
+  it("GET /api/sessions/:id returns attributedModel resolved from token_usage", async () => {
+    const sessionId = `sess-attr-detail-${Date.now()}`;
+    await post("/api/sessions", {
+      id: sessionId,
+      name: "Attributed Model Detail Test",
+      model: "",
+    });
+
+    // Insert token_usage with model evidence
+    db.prepare(
+      `INSERT INTO token_usage (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, "opencode", 200, 100, 20, 10);
+
+    const res = await fetch(`/api/sessions/${sessionId}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.session.attributedModel, "opencode", "attributedModel should resolve from token_usage");
+    // Original model is stored as null when empty string is passed
+    assert.ok(!res.body.session.model, "Original model should be empty/null when no model provided");
+  });
+});
 describe("Agents API", () => {
   it("should create an agent", async () => {
     const res = await post("/api/agents", {
@@ -1940,7 +2000,7 @@ describe("Run ID Correlation", () => {
     assert.equal(sessRes.body.session.run_id, runId2);
   });
 
-  it("should look up session by run_id via ?run_id= query parameter", async () => {
+  it("should look up session by run_id via ?run_id= query parameter and return attributedModel", async () => {
     const sessionId = `runid-lookup-${Date.now()}`;
     const runId = `run-lookup-${Date.now()}`;
 
@@ -1949,12 +2009,19 @@ describe("Run ID Correlation", () => {
       data: { session_id: sessionId, run_id: runId, tool_name: "Write" },
     });
 
+    // Add token_usage evidence so attributedModel resolves
+    db.prepare(
+      `INSERT INTO token_usage (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, "minimax", 100, 50, 10, 5);
+
     // Query by run_id instead of session id
     const res = await fetch(`/api/sessions?run_id=${runId}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.sessions.length, 1);
     assert.equal(res.body.sessions[0].id, sessionId);
     assert.equal(res.body.sessions[0].run_id, runId);
+    assert.equal(res.body.sessions[0].attributedModel, "minimax", "attributedModel should resolve from token_usage via run_id lookup");
   });
 
   it("should return empty sessions array for unknown run_id", async () => {
@@ -3132,6 +3199,124 @@ describe("Model Attribution", () => {
     assert.ok(session.model === null || session.model === undefined || session.model === "unknown" || session.model === "", "Should not guess a model when no evidence exists");
 
     // Clean up
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize opencode as a valid model when evidence exists in token_usage", async () => {
+    const sessionId = `model-opencode-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "OpenCode Session", "active", repoRoot, null, null);
+    // Insert token_usage with opencode model
+    stmts.upsertTokenUsage.run(sessionId, "opencode", 500, 250, 50, 25);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    // Find our session in complexity
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "opencode", "Should recognize opencode from token_usage");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize opencode from sessions.model field directly", async () => {
+    const sessionId = `model-opencode-direct-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "OpenCode Direct", "active", repoRoot, "opencode", null);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "opencode", "Should recognize opencode from sessions.model");
+
+    // Clean up
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize opencode from metadata agent hints", async () => {
+    const sessionId = `model-opencode-meta-${Date.now()}`;
+    const metadata = JSON.stringify({ agent: "opencode-reviewer" });
+    stmts.insertSession.run(sessionId, "OpenCode Meta", "active", repoRoot, null, metadata);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "opencode", "Should recognize opencode from metadata agent hints");
+
+    // Clean up
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should show uncertainty when opencode evidence is insufficient in analytics", async () => {
+    const sessionId = `model-analytics-${Date.now()}`;
+    // Isolate from prior opencode evidence (e.g., from "should track opencode tokens in analytics when evidence exists")
+    db.prepare(`DELETE FROM token_usage WHERE LOWER(model) LIKE '%opencode%'`).run();
+    stmts.insertSession.run(sessionId, "Analytics Test", "active", repoRoot, "claude-sonnet-4-6", null);
+    // Insert token_usage with claude model (no opencode)
+    stmts.upsertTokenUsage.run(sessionId, "claude-sonnet-4-6", 300, 150, 30, 15);
+
+    const res = await fetch("/api/analytics");
+    assert.equal(res.status, 200);
+
+    // When no opencode evidence exists, acceptance_review_evidence should be "no-evidence"
+    assert.equal(res.body.acceptance_review_evidence, "no-evidence", "Should indicate no opencode evidence exists");
+    // acceptance-review role should have zero tokens
+    assert.equal(res.body.tokens_by_role["acceptance-review"].input, 0, "acceptance-review should have zero input tokens without evidence");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should track opencode tokens in analytics when evidence exists", async () => {
+    const sessionId = `model-analytics-opencode-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "Analytics OpenCode", "active", repoRoot, "opencode", null);
+    stmts.upsertTokenUsage.run(sessionId, "opencode", 200, 100, 20, 10);
+
+    const res = await fetch("/api/analytics");
+    assert.equal(res.status, 200);
+
+    // When opencode evidence exists, acceptance_review_evidence should be "confirmed"
+    assert.equal(res.body.acceptance_review_evidence, "confirmed", "Should confirm opencode evidence exists");
+
+    // Find opencode in tokens_by_model
+    const opencodeModel = res.body.tokens_by_model.find((m) => m.model === "opencode");
+    assert.ok(opencodeModel, "opencode should appear in tokens_by_model");
+    assert.equal(opencodeModel.roleFamily, "acceptance-review", "opencode should be categorized as acceptance-review");
+
+    // acceptance-review role should have non-zero tokens
+    assert.ok(res.body.tokens_by_role["acceptance-review"].input > 0, "acceptance-review should have input tokens");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should not attribute claude models to orchestrator role", async () => {
+    const sessionId = `claude-not-orchestrator-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "Claude Orchestrator Test", "active", repoRoot, "claude-sonnet-4-6", null);
+    stmts.upsertTokenUsage.run(sessionId, "claude-sonnet-4-6", 500, 250, 50, 25);
+
+    const res = await fetch("/api/analytics");
+    assert.equal(res.status, 200);
+
+    // Find the claude model in tokens_by_model
+    const claudeModel = res.body.tokens_by_model.find((m) => m.model === "claude-sonnet-4-6");
+    assert.ok(claudeModel, "claude-sonnet-4-6 should appear in tokens_by_model");
+    // claude should NOT be attributed as orchestrator — evidence is insufficient
+    assert.equal(claudeModel.roleFamily, "unknown", "claude should not be attributed to orchestrator without explicit evidence");
+
+    // orchestrator role should NOT have these tokens (they should be unknown)
+    const orchestratorInput = res.body.tokens_by_role.orchestrator.input;
+    assert.equal(orchestratorInput, 0, "orchestrator should have zero input tokens when only claude evidence exists");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
     db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
   });
 });

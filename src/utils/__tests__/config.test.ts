@@ -90,6 +90,8 @@ describe('createDefaultConfig', () => {
       orchestrator: 'codex',
       executionHost: 'claude',
       acceptance: 'codex',
+      acceptanceOwner: 'codex',
+      acceptanceReviewer: undefined,
     })
   })
 
@@ -106,7 +108,66 @@ describe('createDefaultConfig', () => {
       orchestrator: 'claude',
       executionHost: 'codex',
       acceptance: 'claude',
+      acceptanceOwner: 'claude',
+      acceptanceReviewer: undefined,
     })
+  })
+
+  it('acceptanceOwner defaults to orchestrator when not specified', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+      },
+    })
+    expect(config.ownership?.acceptanceOwner).toBe('codex')
+    expect(config.ownership?.acceptance).toBe('codex')
+  })
+
+  it('acceptanceReviewer is optional and undefined by default', () => {
+    const config = createDefaultConfig(baseOptions)
+    expect(config.ownership?.acceptanceReviewer).toBeUndefined()
+  })
+
+  it('legacy acceptance field maps correctly to acceptanceOwner', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptance: 'claude',
+      },
+    })
+    expect(config.ownership?.acceptanceOwner).toBe('claude')
+    expect(config.ownership?.acceptance).toBe('claude')
+  })
+
+  it('opencode can be set as acceptanceReviewer', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'opencode',
+      },
+    })
+    expect(config.ownership?.acceptanceReviewer).toBe('opencode')
+    expect(config.ownership?.acceptanceOwner).toBe('codex')
+  })
+
+  it('acceptanceOwner can be different from orchestrator (future config)', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceOwner: 'claude',
+      },
+    })
+    expect(config.ownership?.orchestrator).toBe('codex')
+    expect(config.ownership?.acceptanceOwner).toBe('claude')
+    expect(config.ownership?.acceptance).toBe('claude')
   })
 
   it('preserves routing config exactly', () => {

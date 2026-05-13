@@ -819,6 +819,174 @@ export function Analytics() {
                 <p className="text-sm text-gray-500">No cost data yet.</p>
               )}
             </div>
+
+            {/* Acceptance Topology */}
+            <div className="card p-5">
+              <h3 className="text-sm font-medium text-gray-300 mb-5">Acceptance Topology</h3>
+              {data?.acceptance_review_evidence === "confirmed" ? (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-accent animate-live-pulse" />
+                  <span className="text-xs text-accent">Acceptance-review evidence detected</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-gray-500" />
+                  <span className="text-xs text-gray-500">No acceptance-review evidence</span>
+                </div>
+              )}
+              <div className="space-y-2">
+                {([
+                  { label: "Orchestrator", key: "orchestrator" as const, color: "bg-blue-500" },
+                  { label: "Execution", key: "execution" as const, color: "bg-green-500" },
+                  { label: "Acceptance-Review", key: "acceptance-review" as const, color: "bg-purple-500" },
+                  { label: "Unknown", key: "unknown" as const, color: "bg-gray-500" },
+                ] as const).map(({ label, key, color }) => {
+                  const roleData = data?.tokens_by_role?.[key];
+                  const total = roleData
+                    ? roleData.input + roleData.output + roleData.cache_read + roleData.cache_write
+                    : 0;
+                  const isUnknown = key === "unknown" && total > 0;
+                  return (
+                    <div key={key} className="flex items-center gap-3">
+                      <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${color}`} />
+                      <span className={`text-xs w-28 truncate flex-shrink-0 ${isUnknown ? "text-gray-500 italic" : "text-gray-400"}`}>
+                        {label}
+                        {isUnknown && " (unattributed)"}
+                      </span>
+                      <div className="flex-1 bg-surface-3 rounded-full h-2">
+                        <div
+                          className={`${color} h-2 rounded-full transition-all`}
+                          style={{ width: `${totalTokens > 0 ? Math.round((total / totalTokens) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <Tip raw={total.toLocaleString()}>
+                        <span className="text-xs text-gray-500 w-12 text-right flex-shrink-0">
+                          {total > 0 ? fmt(total) : "—"}
+                        </span>
+                      </Tip>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Role-level cost participation */}
+              {costData && costData.breakdown.length > 0 && data?.tokens_by_model && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] text-gray-600 mb-2">Cost by Role</p>
+                  {(() => {
+                    type RoleKey = 'orchestrator' | 'execution' | 'acceptance-review' | 'unknown';
+                    const roleCostMap: Record<RoleKey, number> = {
+                      orchestrator: 0,
+                      execution: 0,
+                      "acceptance-review": 0,
+                      unknown: 0,
+                    };
+                    for (const b of costData.breakdown) {
+                      const modelEntry = data.tokens_by_model.find((m) => m.model === b.model);
+                      const role = modelEntry?.roleFamily ?? "unknown";
+                      if (role in roleCostMap) {
+                        roleCostMap[role as RoleKey] += b.cost;
+                      } else {
+                        roleCostMap.unknown += b.cost;
+                      }
+                    }
+                    const totalCost = Object.values(roleCostMap).reduce((s, v) => s + v, 0);
+                    return (
+                      <div className="space-y-2">
+                        {([
+                          { label: "Orchestrator", key: "orchestrator", color: "bg-blue-500" },
+                          { label: "Execution", key: "execution", color: "bg-green-500" },
+                          { label: "Acceptance-Review", key: "acceptance-review", color: "bg-purple-500" },
+                          { label: "Unknown", key: "unknown", color: "bg-gray-500" },
+                        ] as const).map(({ label, key, color }) => {
+                          const cost = roleCostMap[key] ?? 0;
+                          return (
+                            <div key={key} className="flex items-center gap-3">
+                              <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${color}`} />
+                              <span className={`text-xs w-28 truncate flex-shrink-0 ${key === "unknown" && cost > 0 ? "text-gray-500 italic" : "text-gray-400"}`}>
+                                {label}
+                                {key === "unknown" && cost > 0 && " (unattributed)"}
+                              </span>
+                              <div className="flex-1 bg-surface-3 rounded-full h-2">
+                                <div
+                                  className={`${color} h-2 rounded-full transition-all`}
+                                  style={{ width: `${totalCost > 0 ? Math.round((cost / totalCost) * 100) : 0}%` }}
+                                />
+                              </div>
+                              <Tip raw={fmtCostFull(cost)}>
+                                <span className="text-xs text-gray-500 w-16 text-right flex-shrink-0">
+                                  {cost > 0 ? fmtCost(cost) : "—"}
+                                </span>
+                              </Tip>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Rework efficiency status */}
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] text-gray-600 mb-2">Rework Efficiency</p>
+                {data?.reworkEfficiency?.hasEvidence ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Review sessions</span>
+                      <span className="text-gray-300 font-mono">{data.reworkEfficiency.hasReviewSessions}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Non-review sessions</span>
+                      <span className="text-gray-300 font-mono">{data.reworkEfficiency.noReviewSessions}</span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] text-gray-600 uppercase tracking-wider">Review session outcomes</p>
+                      {(data.reworkEfficiency.hasReviewOutcomes || []).map(o => (
+                        <div key={o.status} className="flex justify-between text-xs">
+                          <span className="text-gray-500 ml-2">{o.status}</span>
+                          <span className="text-gray-400 font-mono">{o.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] text-gray-600 uppercase tracking-wider">Non-review session outcomes</p>
+                      {(data.reworkEfficiency.noReviewOutcomes || []).map(o => (
+                        <div key={o.status} className="flex justify-between text-xs">
+                          <span className="text-gray-500 ml-2">{o.status}</span>
+                          <span className="text-gray-400 font-mono">{o.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-2 italic">Side-by-side comparison enables qualitative assessment of reviewer impact.</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 italic">
+                    Insufficient evidence — no acceptance-review signals detected.
+                  </p>
+                )}
+              </div>
+
+              {data?.tokens_by_model && data.tokens_by_model.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] text-gray-600 mb-2">Models detected:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {data.tokens_by_model.map((m) => (
+                      <span
+                        key={m.model}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-surface-3 rounded border border-border"
+                      >
+                        <span className="text-gray-400 font-mono">{m.model}</span>
+                        <span className="text-gray-600">→</span>
+                        <span className={m.roleFamily === "unknown" ? "text-gray-500 italic" : "text-gray-300"}>
+                          {m.roleFamily}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

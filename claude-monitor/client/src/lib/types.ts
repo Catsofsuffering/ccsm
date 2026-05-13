@@ -90,6 +90,21 @@ export interface Analytics {
     total_cache_read: number;
     total_cache_write: number;
   };
+  tokens_by_model: Array<{
+    model: string;
+    total_input: number;
+    total_output: number;
+    total_cache_read: number;
+    total_cache_write: number;
+    roleFamily: string;
+  }>;
+  tokens_by_role: {
+    orchestrator: { input: number; output: number; cache_read: number; cache_write: number };
+    execution: { input: number; output: number; cache_read: number; cache_write: number };
+    "acceptance-review": { input: number; output: number; cache_read: number; cache_write: number };
+    unknown: { input: number; output: number; cache_read: number; cache_write: number };
+  };
+  acceptance_review_evidence: "confirmed" | "no-evidence";
   tool_usage: Array<{ tool_name: string; count: number }>;
   daily_events: Array<{ date: string; count: number }>;
   daily_sessions: Array<{ date: string; count: number }>;
@@ -106,6 +121,13 @@ export interface Analytics {
   };
   agents_by_status: Record<string, number>;
   sessions_by_status: Record<string, number>;
+  reworkEfficiency?: {
+    hasEvidence: boolean;
+    hasReviewSessions?: number;
+    hasReviewOutcomes?: Array<{ status: string; count: number }>;
+    noReviewSessions?: number;
+    noReviewOutcomes?: Array<{ status: string; count: number }>;
+  };
 }
 
 export interface ModelPricing {

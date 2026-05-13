@@ -8,7 +8,7 @@ const { stmts, db } = require("../db");
 const { broadcast } = require("../websocket");
 const { calculateCost } = require("./pricing");
 const { getSessionOutputs } = require("../lib/session-outputs");
-const { workspaceSessionFilter, getActiveWorkspaceRoot } = require("../lib/openspec-state");
+const { workspaceSessionFilter, getActiveWorkspaceRoot, getBestKnownModelForSession } = require("../lib/openspec-state");
 const { isStartupOnlyNoiseSession } = require("../lib/session-noise");
 
 const router = Router();
@@ -54,6 +54,7 @@ router.get("/", (req, res) => {
     if (!session) {
       return res.json({ sessions: [], limit, offset, run_id: runId });
     }
+    session.attributedModel = getBestKnownModelForSession(session.id) || session.model;
     return res.json({ sessions: [session], limit, offset, run_id: runId });
   }
 
@@ -129,6 +130,7 @@ router.get("/", (req, res) => {
       } else {
         row.cost = 0;
       }
+      row.attributedModel = getBestKnownModelForSession(row.id) || row.model;
     }
   }
 
@@ -140,6 +142,7 @@ router.get("/:id", (req, res) => {
   if (!session) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: "Session not found" } });
   }
+  session.attributedModel = getBestKnownModelForSession(session.id) || session.model;
   const agents = stmts.listAgentsBySession.all(req.params.id);
   const events = stmts.listEventsBySession.all(req.params.id);
   const outputs = getSessionOutputs(session, agents, events);

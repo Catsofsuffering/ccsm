@@ -16,6 +16,16 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
 - Before Claude dispatch completes, Codex may inspect context and prepare the packet, but must not edit product code or start implementation locally.
 - `spec-impl` is an orchestration skill; execution workers must return implementation evidence to Codex rather than running review or mutating OpenSpec task state.
 
+**Acceptance topology**
+
+The acceptance topology defines who does what after execution returns. The roles are:
+
+- **Decision owner** (Codex): owns acceptance and archive decisions. This is never delegated to execution workers.
+- **Optional acceptance reviewer** (e.g., opencode): can appear in the workflow to provide analysis, but the orchestrator makes the final call. opencode is always additive, never the primary path.
+- **Execution worker**: implements bounded work and returns evidence. Workers never perform acceptance, never decide archive readiness, and never run `spec-review`.
+
+The execution path (orchestrator to execution worker) and the acceptance path (decision owner and optional reviewer) are distinct. Archive is always explicit and owned by the decision owner.
+
 **Steps**
 
 1. Select the active change with `openspec status --change "<change-name>" --json`.

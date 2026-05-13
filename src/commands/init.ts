@@ -57,9 +57,10 @@ export async function init(options: InitOptions = {}): Promise<void> {
   }
   await initI18n(language)
 
-  let orchestrator: ModelType = options.orchestrator || persistedConfig?.ownership?.orchestrator || 'codex'
+  let orchestrator: HostRuntime = (options.orchestrator || persistedConfig?.ownership?.orchestrator || 'codex') as HostRuntime
   let executionHost: HostRuntime = persistedConfig?.ownership?.executionHost || (orchestrator === 'codex' ? 'claude' : 'codex')
-  let acceptanceModel: ModelType = persistedConfig?.ownership?.acceptance || (orchestrator === 'codex' ? 'codex' : 'claude')
+  let acceptanceOwner: ModelType = persistedConfig?.ownership?.acceptanceOwner || persistedConfig?.ownership?.acceptance || orchestrator
+  let acceptanceReviewer: ModelType | undefined = persistedConfig?.ownership?.acceptanceReviewer
   let frontendModels: ModelType[] = persistedConfig?.routing?.frontend?.models || ['codex']
   let backendModels: ModelType[] = persistedConfig?.routing?.backend?.models || ['codex']
   const mode: CollaborationMode = 'smart'
@@ -83,8 +84,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
     }])
 
     orchestrator = selectedOrchestrator
-    executionHost = selectedOrchestrator === 'codex' ? 'claude' : 'codex'
-    acceptanceModel = selectedOrchestrator === 'codex' ? 'codex' : 'claude'
+    executionHost = (selectedOrchestrator === 'codex' ? 'claude' : 'codex') as HostRuntime
+    // Default acceptanceOwner = orchestrator for conservative v1 behavior
+    acceptanceOwner = (selectedOrchestrator === 'codex' ? 'codex' : 'claude') as ModelType
 
     const { selectedFrontend } = await inquirer.prompt([{
       type: 'list',
@@ -110,6 +112,19 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
     frontendModels = [selectedFrontend]
     backendModels = [selectedBackend]
+
+    // Optional acceptance reviewer prompt (additive, not the decision owner)
+    const { selectedAcceptanceReviewer } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selectedAcceptanceReviewer',
+      message: 'Acceptance reviewer (optional, additive)',
+      choices: [
+        { name: 'None (orchestrator decides)', value: undefined },
+        { name: 'OpenCode (pre-review only)', value: 'opencode' as ModelType },
+      ],
+      default: acceptanceReviewer,
+    }])
+    acceptanceReviewer = selectedAcceptanceReviewer
   }
 
   let skipImpeccable = persistedConfig?.performance?.skipImpeccable || false
@@ -155,6 +170,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
   console.log()
   console.log(`  ${ansis.cyan(i18n.t('init:summary.orchestrator'))}  ${ansis.green(capitalize(orchestrator))} ${ansis.gray('→')} ${ansis.blue(capitalize(executionHost))}`)
   console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(capitalize(frontendModels[0]))} (Frontend) + ${ansis.blue(capitalize(backendModels[0]))} (Backend)`)
+  console.log(`  ${ansis.cyan('Acceptance Topology')}  ${ansis.green(capitalize(acceptanceOwner))} (owner) ${acceptanceReviewer ? ansis.gray('+') + ansis.yellow(' ' + capitalize(acceptanceReviewer) + ' (reviewer)') : ''}`)
   console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(selectedWorkflows.length.toString())}`)
   console.log(ansis.yellow('━'.repeat(50)))
   console.log()
@@ -220,7 +236,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
       ownership: {
         orchestrator,
         executionHost,
-        acceptance: acceptanceModel,
+        acceptanceOwner,
+        acceptanceReviewer,
       },
     })
 
