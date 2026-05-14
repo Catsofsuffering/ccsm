@@ -145,7 +145,9 @@ export function createDefaultConfig(options: {
   }
 }): CcgConfig {
   // Build ownership with backward compatibility:
-  // - acceptance (legacy) maps to acceptanceOwner
+  // - acceptanceOwner is the new explicit final decision field
+  // - legacy acceptance is preserved for compatibility, but does not override
+  //   the v1 conservative default unless acceptanceOwner is explicitly set
   // - Default: acceptanceOwner = orchestrator, acceptanceReviewer = undefined
   const inputOwnership: NonNullable<typeof options.ownership> = options.ownership || {
     orchestrator: 'codex',
@@ -154,8 +156,9 @@ export function createDefaultConfig(options: {
   const ownership = {
     orchestrator: inputOwnership.orchestrator || 'codex',
     executionHost: inputOwnership.executionHost || 'claude',
-    // acceptanceOwner: if explicitly set, use it; otherwise fall back to legacy acceptance, then to orchestrator
-    acceptanceOwner: inputOwnership.acceptanceOwner || inputOwnership.acceptance || inputOwnership.orchestrator || 'codex',
+    // acceptanceOwner: only explicit topology config overrides the conservative
+    // default. Legacy acceptance is preserved separately for compatibility.
+    acceptanceOwner: inputOwnership.acceptanceOwner || inputOwnership.orchestrator || 'codex',
     // acceptanceReviewer is optional and undefined by default
     acceptanceReviewer: inputOwnership.acceptanceReviewer,
     // legacy acceptance field kept for backward compat

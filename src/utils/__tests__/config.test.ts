@@ -130,7 +130,7 @@ describe('createDefaultConfig', () => {
     expect(config.ownership?.acceptanceReviewer).toBeUndefined()
   })
 
-  it('legacy acceptance field maps correctly to acceptanceOwner', () => {
+  it('legacy acceptance field preserves backward compatibility without overriding acceptanceOwner', () => {
     const config = createDefaultConfig({
       ...baseOptions,
       ownership: {
@@ -139,7 +139,7 @@ describe('createDefaultConfig', () => {
         acceptance: 'claude',
       },
     })
-    expect(config.ownership?.acceptanceOwner).toBe('claude')
+    expect(config.ownership?.acceptanceOwner).toBe('codex')
     expect(config.ownership?.acceptance).toBe('claude')
   })
 

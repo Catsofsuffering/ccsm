@@ -845,13 +845,18 @@ export function Analytics() {
                   const total = roleData
                     ? roleData.input + roleData.output + roleData.cache_read + roleData.cache_write
                     : 0;
+                  const capability = key === "unknown" ? null : data?.role_attribution_capabilities?.[key];
                   const isUnknown = key === "unknown" && total > 0;
+                  const isEvidenceLimited = capability === "insufficient-evidence";
+                  const isNoEvidence = capability === "no-evidence";
                   return (
                     <div key={key} className="flex items-center gap-3">
                       <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${color}`} />
-                      <span className={`text-xs w-28 truncate flex-shrink-0 ${isUnknown ? "text-gray-500 italic" : "text-gray-400"}`}>
+                      <span className={`text-xs w-28 truncate flex-shrink-0 ${(isUnknown || isEvidenceLimited || isNoEvidence) ? "text-gray-500 italic" : "text-gray-400"}`}>
                         {label}
                         {isUnknown && " (unattributed)"}
+                        {isEvidenceLimited && " (pending evidence)"}
+                        {isNoEvidence && " (no evidence)"}
                       </span>
                       <div className="flex-1 bg-surface-3 rounded-full h-2">
                         <div
@@ -868,6 +873,9 @@ export function Analytics() {
                   );
                 })}
               </div>
+              <p className="text-[10px] text-gray-600 mt-3 italic">
+                Reviewer attribution is evidence-based today. Orchestrator and execution role totals stay conservative until runtime evidence can distinguish them reliably.
+              </p>
 
               {/* Role-level cost participation */}
               {costData && costData.breakdown.length > 0 && data?.tokens_by_model && (
@@ -900,12 +908,17 @@ export function Analytics() {
                           { label: "Unknown", key: "unknown", color: "bg-gray-500" },
                         ] as const).map(({ label, key, color }) => {
                           const cost = roleCostMap[key] ?? 0;
+                          const capability = key === "unknown" ? null : data.role_attribution_capabilities?.[key];
+                          const isEvidenceLimited = capability === "insufficient-evidence";
+                          const isNoEvidence = capability === "no-evidence";
                           return (
                             <div key={key} className="flex items-center gap-3">
                               <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${color}`} />
-                              <span className={`text-xs w-28 truncate flex-shrink-0 ${key === "unknown" && cost > 0 ? "text-gray-500 italic" : "text-gray-400"}`}>
+                              <span className={`text-xs w-28 truncate flex-shrink-0 ${(key === "unknown" && cost > 0) || isEvidenceLimited || isNoEvidence ? "text-gray-500 italic" : "text-gray-400"}`}>
                                 {label}
                                 {key === "unknown" && cost > 0 && " (unattributed)"}
+                                {isEvidenceLimited && " (pending evidence)"}
+                                {isNoEvidence && " (no evidence)"}
                               </span>
                               <div className="flex-1 bg-surface-3 rounded-full h-2">
                                 <div

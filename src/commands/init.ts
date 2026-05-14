@@ -59,7 +59,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
   let orchestrator: HostRuntime = (options.orchestrator || persistedConfig?.ownership?.orchestrator || 'codex') as HostRuntime
   let executionHost: HostRuntime = persistedConfig?.ownership?.executionHost || (orchestrator === 'codex' ? 'claude' : 'codex')
-  let acceptanceOwner: ModelType = persistedConfig?.ownership?.acceptanceOwner || persistedConfig?.ownership?.acceptance || orchestrator
+  let acceptanceOwner: ModelType = persistedConfig?.ownership?.acceptanceOwner || orchestrator
   let acceptanceReviewer: ModelType | undefined = persistedConfig?.ownership?.acceptanceReviewer
   let frontendModels: ModelType[] = persistedConfig?.routing?.frontend?.models || ['codex']
   let backendModels: ModelType[] = persistedConfig?.routing?.backend?.models || ['codex']

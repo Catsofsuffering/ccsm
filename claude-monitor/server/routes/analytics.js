@@ -46,8 +46,10 @@ router.get("/", (_req, res) => {
   // This includes opencode tokens when evidence exists
   const tokensByModel = stmts.getTokenTotalsByModel.all();
 
-  // Aggregate tokens by role family for cost/rework efficiency analytics
-  // Distinguishes orchestrator, execution, and acceptance-review participation
+  // Aggregate tokens by role family for cost/rework efficiency analytics.
+  // Today only acceptance-review can be attributed precisely from concrete evidence.
+  // Orchestrator and execution remain explicit placeholders until stronger role
+  // evidence is normalized into analytics.
   const roleTokenTotals = {
     orchestrator: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
     execution: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
@@ -114,6 +116,11 @@ router.get("/", (_req, res) => {
     },
     tokens_by_model: modelBreakdown,
     tokens_by_role: roleTokenTotals,
+    role_attribution_capabilities: {
+      orchestrator: "insufficient-evidence",
+      execution: "insufficient-evidence",
+      "acceptance-review": hasOpencodeEvidence ? "evidence-based" : "no-evidence",
+    },
     // Explicit uncertainty indicator when no opencode evidence exists
     // This prevents fabricated efficiency claims about acceptance-review participation
     acceptance_review_evidence: hasOpencodeEvidence ? "confirmed" : "no-evidence",

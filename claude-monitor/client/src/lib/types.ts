@@ -104,6 +104,11 @@ export interface Analytics {
     "acceptance-review": { input: number; output: number; cache_read: number; cache_write: number };
     unknown: { input: number; output: number; cache_read: number; cache_write: number };
   };
+  role_attribution_capabilities: {
+    orchestrator: "insufficient-evidence";
+    execution: "insufficient-evidence";
+    "acceptance-review": "evidence-based" | "no-evidence";
+  };
   acceptance_review_evidence: "confirmed" | "no-evidence";
   tool_usage: Array<{ tool_name: string; count: number }>;
   daily_events: Array<{ date: string; count: number }>;
