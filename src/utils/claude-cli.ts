@@ -5,6 +5,7 @@ import { delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:pat
 import fs from 'fs-extra'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_MONITOR_PORT } from './claude-monitor'
+import { CANONICAL_RUNTIME_DIRNAME } from './identity'
 
 const CLAUDE_PACKAGE_NAME = '@anthropic-ai/claude-code'
 const LOCAL_BYPASS_HOSTS = ['127.0.0.1', 'localhost']
@@ -43,6 +44,9 @@ export interface RunClaudeExecResult {
   outputs: unknown
   sessionStatus: string
   runId: string
+  outputSource?: 'monitor' | 'return-packet-fallback' | 'none'
+  returnPacketPath?: string | null
+  evidenceStatus?: 'available' | 'missing'
 }
 
 interface MonitorAgentSnapshot {
@@ -81,6 +85,7 @@ export function mergeNoProxyValue(existing?: string): string {
 export interface BuildClaudeLaunchEnvOptions {
   enableAgentTeams?: boolean
   runId?: string
+  returnPacketPath?: string
   workspaceRoot?: string
 }
 
@@ -88,7 +93,7 @@ export function buildClaudeLaunchEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
   options: BuildClaudeLaunchEnvOptions = {},
 ): NodeJS.ProcessEnv {
-  const { enableAgentTeams = true, runId, workspaceRoot } = options
+  const { enableAgentTeams = true, runId, returnPacketPath, workspaceRoot } = options
   const nextEnv = { ...baseEnv }
   if (nextEnv.CCSM_CLAUDE_APPEND_LOCAL_NO_PROXY === '1') {
     const mergedNoProxy = mergeNoProxyValue(nextEnv.NO_PROXY || nextEnv.no_proxy)
@@ -105,11 +110,121 @@ export function buildClaudeLaunchEnv(
     nextEnv.CCSM_RUN_ID = runId
   }
 
+  if (returnPacketPath) {
+    nextEnv.CCSM_RETURN_PACKET_PATH = returnPacketPath
+  }
+
   if (workspaceRoot) {
     nextEnv.CCSM_WORKSPACE_ROOT = workspaceRoot
   }
 
   return nextEnv
+}
+
+export function getReturnPacketDir(canonicalHomeDir = join(homedir(), CANONICAL_RUNTIME_DIRNAME)): string {
+  return join(canonicalHomeDir, 'return-packets')
+}
+
+export function getReturnPacketPath(runId: string, canonicalHomeDir = join(homedir(), CANONICAL_RUNTIME_DIRNAME)): string {
+  return join(getReturnPacketDir(canonicalHomeDir), `${runId}.md`)
+}
+
+async function prepareReturnPacketPath(runId: string, canonicalHomeDir = join(homedir(), CANONICAL_RUNTIME_DIRNAME)): Promise<string> {
+  const returnPacketDir = getReturnPacketDir(canonicalHomeDir)
+  await fs.ensureDir(returnPacketDir)
+  const returnPacketPath = getReturnPacketPath(runId, canonicalHomeDir)
+  await fs.remove(returnPacketPath)
+  return returnPacketPath
+}
+
+export function hasUsableExecutionOutputs(outputs: unknown): boolean {
+  if (outputs === null || outputs === undefined) {
+    return false
+  }
+
+  if (typeof outputs === 'string') {
+    return outputs.trim().length > 0
+  }
+
+  if (Array.isArray(outputs)) {
+    return outputs.length > 0
+  }
+
+  if (typeof outputs === 'object') {
+    const record = outputs as Record<string, unknown>
+    if ('outputs' in record) {
+      return hasUsableExecutionOutputs(record.outputs)
+    }
+    if (Array.isArray(record.agents)) {
+      return record.agents.some((agent) => {
+        if (!agent || typeof agent !== 'object') {
+          return false
+        }
+
+        const agentRecord = agent as Record<string, unknown>
+        if (hasUsableExecutionOutputs(agentRecord.latest_output)) {
+          return true
+        }
+
+        if (Array.isArray(agentRecord.outputs) && agentRecord.outputs.some(output => hasUsableExecutionOutputs(output))) {
+          return true
+        }
+
+        return typeof agentRecord.output_count === 'number' && agentRecord.output_count > 0
+      })
+    }
+    return false
+  }
+
+  return true
+}
+
+export async function readReturnPacketArtifact(returnPacketPath: string): Promise<string | null> {
+  try {
+    if (!await fs.pathExists(returnPacketPath)) {
+      return null
+    }
+
+    const content = (await fs.readFile(returnPacketPath, 'utf-8')).trim()
+    return content.length > 0 ? content : null
+  }
+  catch {
+    return null
+  }
+}
+
+export async function resolveExecutionEvidence(
+  monitorOutputs: unknown,
+  returnPacketPath?: string | null,
+): Promise<Pick<RunClaudeExecResult, 'outputs' | 'outputSource' | 'returnPacketPath'>> {
+  if (hasUsableExecutionOutputs(monitorOutputs)) {
+    return {
+      outputs: monitorOutputs,
+      outputSource: 'monitor',
+      returnPacketPath: returnPacketPath || null,
+    }
+  }
+
+  if (returnPacketPath) {
+    const returnPacket = await readReturnPacketArtifact(returnPacketPath)
+    if (returnPacket) {
+      return {
+        outputs: {
+          source: 'ccsm-return-packet-fallback',
+          path: returnPacketPath,
+          content: returnPacket,
+        },
+        outputSource: 'return-packet-fallback',
+        returnPacketPath,
+      }
+    }
+  }
+
+  return {
+    outputs: null,
+    outputSource: 'none',
+    returnPacketPath: returnPacketPath || null,
+  }
 }
 
 function hasExplicitPermissionConfiguration(args: string[]): boolean {
@@ -484,11 +599,13 @@ export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise
   const monitorPort = options.monitorPort || DEFAULT_MONITOR_PORT
   const runId = options.runId || (options.statusDriven ? randomUUID() : undefined)
   const gracePeriodMs = Number(process.env.GRACE_PERIOD_MS || '30000')
+  const returnPacketPath = runId ? await prepareReturnPacketPath(runId) : undefined
 
   const launchSpec = await resolveClaudeLaunchSpec(options)
   const env = buildClaudeLaunchEnv(options.env || process.env, {
     enableAgentTeams: options.enableAgentTeams !== false,
     runId,
+    returnPacketPath,
     workspaceRoot: options.workspaceRoot,
   })
   const prompt = await readPrompt(options)
@@ -573,18 +690,23 @@ export async function runClaudeExec(options: RunClaudeExecOptions = {}): Promise
   }
 
   // Fetch structured outputs from monitor
-  const outputs = await fetchSessionOutputs(monitorPort, sessionId)
+  const monitorOutputs = await fetchSessionOutputs(monitorPort, sessionId)
+  const executionEvidence = await resolveExecutionEvidence(monitorOutputs, returnPacketPath)
 
   // Determine exit code: completed=0, error/abandoned=childExitCode??1
-  const exitCode = sessionStatus === 'completed'
+  const evidenceStatus = executionEvidence.outputSource === 'none' ? 'missing' : 'available'
+  const exitCode = sessionStatus === 'completed' && evidenceStatus === 'available'
     ? 0
-    : (childExitCode ?? 1);
+    : (childExitCode ?? 1)
 
   return {
     exitCode,
-    outputs,
+    outputs: executionEvidence.outputs,
     sessionStatus,
     runId: sessionId,
+    outputSource: executionEvidence.outputSource,
+    returnPacketPath: executionEvidence.returnPacketPath,
+    evidenceStatus,
   }
 }
 

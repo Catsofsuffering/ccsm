@@ -6,8 +6,12 @@ import { extractClaudeExecArgs } from '../../commands/claude'
 import {
   buildClaudeExecArgs,
   buildClaudeLaunchEnv,
+  getReturnPacketPath,
   getDefaultClaudePermissionMode,
+  hasUsableExecutionOutputs,
   mergeNoProxyValue,
+  readReturnPacketArtifact,
+  resolveExecutionEvidence,
   resolveClaudeLaunchSpec,
   resolveWindowsCmdShimTarget,
 } from '../claude-cli'
@@ -64,6 +68,11 @@ describe('buildClaudeLaunchEnv', () => {
     const env = buildClaudeLaunchEnv({}, { runId: 'test-run-123', workspaceRoot: '/tmp/workspace' })
     expect(env.CCSM_RUN_ID).toBe('test-run-123')
     expect(env.CCSM_WORKSPACE_ROOT).toBe('/tmp/workspace')
+  })
+
+  it('can inject a persisted return-packet path for status-driven runs', () => {
+    const env = buildClaudeLaunchEnv({}, { returnPacketPath: '/tmp/.ccsm/return-packets/test-run-123.md' })
+    expect(env.CCSM_RETURN_PACKET_PATH).toBe('/tmp/.ccsm/return-packets/test-run-123.md')
   })
 })
 
@@ -175,12 +184,113 @@ describe('extractClaudeExecArgs', () => {
   })
 })
 
+describe('status-driven execution evidence', () => {
+  it('builds the canonical return-packet path from the run id', () => {
+    expect(getReturnPacketPath('run-123', '/tmp/.ccsm')).toBe(join('/tmp/.ccsm', 'return-packets', 'run-123.md'))
+  })
+
+  it('detects usable and unusable monitor outputs', () => {
+    expect(hasUsableExecutionOutputs(null)).toBe(false)
+    expect(hasUsableExecutionOutputs('   ')).toBe(false)
+    expect(hasUsableExecutionOutputs({})).toBe(false)
+    expect(hasUsableExecutionOutputs({ agents: [] })).toBe(false)
+    expect(hasUsableExecutionOutputs({ latest_output_agent_id: 'main' })).toBe(false)
+    expect(hasUsableExecutionOutputs({ agents: [{ id: 'main' }] })).toBe(false)
+    expect(hasUsableExecutionOutputs({ agents: [{ output_count: 0, outputs: [], latest_output: null }] })).toBe(false)
+    expect(hasUsableExecutionOutputs([{ markdown: 'done' }])).toBe(true)
+    expect(hasUsableExecutionOutputs({
+      agents: [{ latest_output: { markdown: '# Summary', source: 'transcript' }, output_count: 1, outputs: [] }],
+      latest_output_agent_id: 'main',
+    })).toBe(true)
+  })
+
+  it('reads a persisted return packet when the artifact exists', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-return-packet-'))
+    const returnPacketPath = join(fixtureDir, 'run-123.md')
+    writeFileSync(returnPacketPath, 'EXECUTION RETURN PACKET\nstatus: completed\n')
+
+    await expect(readReturnPacketArtifact(returnPacketPath)).resolves.toContain('EXECUTION RETURN PACKET')
+  })
+
+  it('prefers monitor outputs over the persisted fallback artifact', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-return-packet-priority-'))
+    const returnPacketPath = join(fixtureDir, 'run-123.md')
+    writeFileSync(returnPacketPath, 'EXECUTION RETURN PACKET\nstatus: completed\n')
+
+    const result = await resolveExecutionEvidence({
+      agents: [
+        {
+          agent_id: 'main',
+          latest_output: { markdown: '# Summary', source: 'transcript' },
+          output_count: 1,
+          outputs: [{ markdown: '# Summary', source: 'transcript' }],
+        },
+      ],
+      latest_output_agent_id: 'main',
+    }, returnPacketPath)
+    expect(result.outputSource).toBe('monitor')
+    expect(result.outputs).toEqual({
+      agents: [
+        {
+          agent_id: 'main',
+          latest_output: { markdown: '# Summary', source: 'transcript' },
+          output_count: 1,
+          outputs: [{ markdown: '# Summary', source: 'transcript' }],
+        },
+      ],
+      latest_output_agent_id: 'main',
+    })
+    expect(result.returnPacketPath).toBe(returnPacketPath)
+  })
+
+  it('falls back to the persisted return packet when monitor outputs are unusable', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-return-packet-fallback-'))
+    const returnPacketPath = join(fixtureDir, 'run-456.md')
+    writeFileSync(returnPacketPath, 'EXECUTION RETURN PACKET\nstatus: partial\n')
+
+    const result = await resolveExecutionEvidence(null, returnPacketPath)
+    expect(result.outputSource).toBe('return-packet-fallback')
+    expect(result.outputs).toEqual({
+      source: 'ccsm-return-packet-fallback',
+      path: returnPacketPath,
+      content: 'EXECUTION RETURN PACKET\nstatus: partial',
+    })
+    expect(result.returnPacketPath).toBe(returnPacketPath)
+  })
+
+  it('falls back when monitor outputs only contain incomplete metadata', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'ccsm-return-packet-incomplete-'))
+    const returnPacketPath = join(fixtureDir, 'run-789.md')
+    writeFileSync(returnPacketPath, 'EXECUTION RETURN PACKET\nstatus: completed\n')
+
+    const result = await resolveExecutionEvidence({
+      agents: [{ id: 'main', output_count: 0, outputs: [], latest_output: null }],
+      latest_output_agent_id: 'main',
+    }, returnPacketPath)
+
+    expect(result.outputSource).toBe('return-packet-fallback')
+    expect(result.outputs).toEqual({
+      source: 'ccsm-return-packet-fallback',
+      path: returnPacketPath,
+      content: 'EXECUTION RETURN PACKET\nstatus: completed',
+    })
+  })
+
+  it('surfaces a none source when no usable evidence exists', async () => {
+    const result = await resolveExecutionEvidence(null, join(tmpdir(), 'missing-return-packet.md'))
+    expect(result.outputSource).toBe('none')
+    expect(result.outputs).toBeNull()
+  })
+})
+
 describe('spec-impl skill', () => {
   it('uses the stable ccsm claude launcher instead of a PowerShell snippet', () => {
     const packageRoot = findPackageRoot()
     const content = readFileSync(join(packageRoot, 'templates', 'codex-skills', 'spec-impl', 'SKILL.md'), 'utf-8')
 
     expect(content).toContain('ccsm claude exec --status-driven --prompt-file')
+    expect(content).toContain('host-native delegation')
+    expect(content).toContain('returnPacketPath')
     expect(content).not.toContain('```powershell')
     expect(content).not.toContain('claude -p $prompt')
   })

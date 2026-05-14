@@ -6,6 +6,7 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
 - Codex 负责推进 change、分发执行、回收结果、测试验收、决定 archive。
 - Claude 负责执行，不负责最终验收，不负责最终归档决策。
 - `spec-impl` is an orchestration skill: execution workers must not run `spec-review`, edit active change `tasks.md`, mark OpenSpec tasks complete, archive, or decide acceptance readiness.
+- `spec-impl` 的受维护默认派发动作是外部 `ccsm claude exec`。宿主原生 agent/subagent/delegation 不能静默替代这一步，除非明确记录为 compatibility fallback。
 - 验收失败时，必须形成明确 rework packet 并打回执行层。
 
 **Acceptance Topology（验收拓扑）**
@@ -42,10 +43,12 @@ Archive 是显式的高信任操作，由决策owner持有。执行路径（orch
      - work packages
      - required verification
      - rework triggers
+   - 在启动前把本次 bounded execution packet 写入 `~/.claude/ccsm/claude-dispatch-prompt.txt`；安装器会用 `~/.ccsm/prompts/claude/claude-dispatch-prompt.txt` 这份受管 scaffold 刷新该 bridge 文件。
 
 4. 调度 Claude 执行
    - 如果还没有执行计划，先运行 `/ccsm:team-plan`，基于 handoff contract 生成 Claude Agent Teams 计划。
    - 然后运行 `/ccsm:team-exec` 让 Claude Agent Teams 干活。
+   - 这里的“调度”必须落到外部 `ccsm claude exec` / `claude -p` 运行边界，而不是由宿主直接把实现任务改派给自己的原生 subagent。
    - Execution packet must explicitly tell Claude workers to return evidence only; task checkbox updates, `spec-review`, acceptance, and archive remain Codex-owned.
    - Claude 返回后，必须回收一份 return packet，至少包含：
      - changed files
@@ -57,7 +60,7 @@ Archive 是显式的高信任操作，由决策owner持有。执行路径（orch
    - 基于 return packet、自身代码审查和本地验证做验收。
    - 运行 handoff contract 里要求的测试/检查。
    - 必要时运行 `/ccsm:spec-review` 作为独立验收门禁。
-   - 当使用 `--status-driven` 结果时，执行完成取决于 monitor 的 `sessionStatus`；Return Packet 是 monitor `outputs` 内的内容，而非原始终端文本。
+   - 当使用 `--status-driven` 结果时，执行完成取决于 monitor 的 `sessionStatus`；Return Packet 优先来自 monitor `outputs`，若其缺失或不完整，则回退到 `returnPacketPath` 指向的 CCSM 持久化文件，而非原始终端文本。
 
 6. 失败时打回
    - 若出现任一情况，必须打回执行层：

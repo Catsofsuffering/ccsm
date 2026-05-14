@@ -123,6 +123,8 @@ When using `spec-impl`, the recommended execution model is **status-driven exec*
 
 - **Completion signal**: `sessionStatus` tracks whether a session finished successfully, failed, or was interrupted. This is the authoritative signal for Codex acceptance decisions.
 - **Execution Return Packet**: Structured output produced by `ccsm claude exec` and visible in the monitor's workflow view under `outputs`. Contains implementation evidence that Codex validates against the handoff contract.
+- **Persisted return-packet fallback**: For status-driven runs, CCSM may also provide a run-scoped fallback artifact under `~/.ccsm/return-packets/<run-id>.md`. Codex checks monitor `outputs` first and this persisted file second when the monitor output is missing or incomplete.
+- **Dispatch prompt scaffold**: CCSM installs the maintained Claude dispatch scaffold under `~/.ccsm/prompts/claude/claude-dispatch-prompt.txt` and refreshes the compatibility bridge at `~/.claude/ccsm/claude-dispatch-prompt.txt` used by current `spec-impl` launch examples.
 - **Monitor correlation**: The monitor correlates `sessionStatus` with execution logs so you can verify completion and inspect evidence in one place.
 - **Fallback**: If monitor correlation is unavailable (e.g., the monitor is offline or session tracking cannot be established), treat the run as blocked until correlation is restored. Do not silently fall back to assuming success without an authenticated `sessionStatus`.
 
@@ -219,10 +221,12 @@ These let the primary workflow start directly from the configured orchestrator w
 
 - Codex-native skills are guidance loaded into the current Codex session; they do not yet enforce a runtime-level block on local file edits.
 - `spec-impl` is designed to dispatch implementation to Claude Agent Teams first, then keep verification and acceptance in Codex.
+- The maintained `spec-impl` dispatch step is the external `ccsm claude exec` launch. Host-native delegation or subagents do not count as satisfying that step unless an explicit compatibility fallback is recorded.
 - `spec-impl` is an orchestration skill. Execution workers must return evidence to the orchestrator; they must not run `spec-review`, edit active change `tasks.md`, mark tasks complete, archive, or decide acceptance readiness.
 - `spec-fast` is also an orchestration skill. It may reuse `spec-impl` and `spec-review`, but it must not bypass OpenSpec artifacts, silently fall back to local implementation when dispatch is blocked, or auto-archive by default.
 - If the active session or user prompt says “continue implementation” without restating the dispatch requirement, Codex may still try to implement locally.
 - For reliable `spec-impl` behavior, explicitly mention Claude Agent Teams and `ccsm claude exec` when starting the skill.
+- When reviewing a status-driven run, prefer monitor `outputs`; if they are incomplete, inspect the run-scoped fallback packet under `~/.ccsm/return-packets/` instead of trusting raw terminal output.
 - If Claude Agent Teams, `ccsm claude exec`, or Claude permissions are unavailable, treat the run as blocked or use the explicit `/ccsm:team-*` commands instead of silently falling back to local Codex implementation.
 
 ## Repository Landmarks

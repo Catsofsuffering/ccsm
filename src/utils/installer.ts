@@ -1,7 +1,7 @@
 import type { HostRuntime, InstallResult, ModelType, SkillRole } from '../types'
 import fs from 'fs-extra'
 import { homedir } from 'node:os'
-import { basename, join } from 'pathe'
+import { basename, dirname, extname, join } from 'pathe'
 import { installBundledMonitor, removeClaudeMonitorHooks } from './claude-monitor'
 import {
   getAllCommandIds,
@@ -183,7 +183,7 @@ async function copyMdTemplates(
   ctx: InstallContext,
   srcDir: string,
   destDir: string,
-  options: { inject?: boolean } = {},
+  options: { inject?: boolean, extensions?: string[] } = {},
 ): Promise<string[]> {
   const installed: string[] = []
   if (!(await fs.pathExists(srcDir))) {
@@ -191,10 +191,11 @@ async function copyMdTemplates(
     return installed
   }
 
+  const allowedExtensions = new Set(options.extensions || ['.md'])
   await fs.ensureDir(destDir)
   const files = await fs.readdir(srcDir)
   for (const file of files) {
-    if (!file.endsWith('.md'))
+    if (!allowedExtensions.has(extname(file)))
       continue
 
     const destFile = join(destDir, file)
@@ -209,7 +210,7 @@ async function copyMdTemplates(
       })
       await fs.writeFile(destFile, content, 'utf-8')
     }
-    installed.push(file.replace('.md', ''))
+    installed.push(basename(file, extname(file)))
   }
 
   return installed
@@ -291,6 +292,7 @@ async function installPromptFiles(ctx: InstallContext): Promise<void> {
         ctx,
         join(promptsTemplateDir, model),
         join(promptsDir, model),
+        { extensions: ['.md', '.txt'] },
       )
       for (const name of installed)
         ctx.result.installedPrompts.push(`${model}/${name}`)
@@ -298,6 +300,16 @@ async function installPromptFiles(ctx: InstallContext): Promise<void> {
     catch (error) {
       ctx.result.errors.push(`Failed to install ${model} prompts: ${error}`)
       ctx.result.success = false
+    }
+  }
+
+  const dispatchPromptName = 'claude-dispatch-prompt.txt'
+  const canonicalDispatchPrompt = join(promptsDir, 'claude', dispatchPromptName)
+  const claudeDispatchBridge = join(ctx.claudeHomeDir, 'ccsm', dispatchPromptName)
+  if (await fs.pathExists(canonicalDispatchPrompt)) {
+    await fs.ensureDir(dirname(claudeDispatchBridge))
+    if (ctx.force || !(await fs.pathExists(claudeDispatchBridge))) {
+      await fs.copyFile(canonicalDispatchPrompt, claudeDispatchBridge)
     }
   }
 }
@@ -801,6 +813,9 @@ export async function uninstallWorkflows(
     join(canonicalHomeDir, 'codex-monitor'),
   ]
   const runtimeFiles = [join(canonicalHomeDir, 'config.toml')]
+  const bridgePromptFiles = [
+    join(options?.claudeHomeDir || getHostHomeDir('claude'), 'ccsm', 'claude-dispatch-prompt.txt'),
+  ]
   const hostSkillDirs = Array.from(new Set([
     join(options?.codexHomeDir || join(homedir(), '.codex'), 'skills'),
     join(options?.claudeHomeDir || getHostHomeDir('claude'), 'skills'),
@@ -912,6 +927,18 @@ export async function uninstallWorkflows(
     }
     catch (error) {
       result.errors.push(`Failed to remove runtime file ${runtimeFile}: ${error}`)
+      result.success = false
+    }
+  }
+
+  for (const bridgePromptFile of bridgePromptFiles) {
+    try {
+      if (await fs.pathExists(bridgePromptFile)) {
+        await fs.remove(bridgePromptFile)
+      }
+    }
+    catch (error) {
+      result.errors.push(`Failed to remove bridge prompt file ${bridgePromptFile}: ${error}`)
       result.success = false
     }
   }

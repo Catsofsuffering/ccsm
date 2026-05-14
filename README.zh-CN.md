@@ -123,6 +123,8 @@ openspec archive <change-id>
 
 - **完成信号**：`sessionStatus` 追踪 session 是否成功完成、失败或中断。这是 Codex 验收决策的权威信号。
 - **执行返回包（Execution Return Packet）**：`ccsm claude exec` 生成的结构化输出，在 monitor 的 workflow 视图中可见，位于 `outputs` 下。包含 Codex 用来对照交接契约进行验证的实现证据。
+- **持久化 return-packet fallback**：对状态驱动运行，CCSM 还可能在 `~/.ccsm/return-packets/<run-id>.md` 下保留一份按 run 归档的兜底文件。Codex 应先看 monitor `outputs`，缺失或不完整时再读取这份持久化文件。
+- **Dispatch prompt scaffold**：CCSM 会把受维护的 Claude dispatch scaffold 安装到 `~/.ccsm/prompts/claude/claude-dispatch-prompt.txt`，并同步刷新 `~/.claude/ccsm/claude-dispatch-prompt.txt` 这个兼容 bridge，供当前 `spec-impl` 启动示例直接引用。
 - **Monitor 关联**：Monitor 将 `sessionStatus` 与执行日志关联，让你可以在同一位置验证完成状态并检查证据。
 - **Fallback 行为**：如果 monitor 关联不可用（例如 monitor 离线或无法建立 session 追踪），应将本次执行视为 blocked，直到关联恢复。不要在未获得认证的 `sessionStatus` 情况下静默假设成功。
 
@@ -219,10 +221,12 @@ ccsm fix-mcp
 
 - Codex 原生 skills 是加载到当前 Codex 会话里的提示约束，暂时不能在运行时硬性阻止本地文件编辑。
 - `spec-impl` 的设计目标是先把实现派发给 Claude Agent Teams，再由 Codex 做验证、验收和归档判断。
+- `spec-impl` 受维护的派发动作是外部 `ccsm claude exec` 启动出的 Claude 会话。宿主原生 delegation 或 subagent 不算完成这一步，除非明确记录为 compatibility fallback。
 - `spec-impl` 是编排技能。执行器只能把实现证据返回给编排端；不得运行 `spec-review`，不得编辑当前 change 的 `tasks.md`，不得勾选任务，不得 archive，也不得决定验收是否通过。
 - `spec-fast` 也是编排技能。它可以复用 `spec-impl` 与 `spec-review`，但不能绕过 OpenSpec artifacts，不能在派发 blocked 时静默退回 Codex 本地实现，也不能默认自动 archive。
 - 如果当前会话或用户提示只说“继续实现”，但没有再次强调 Claude Agent Teams 和派发要求，Codex 仍可能尝试本地直接实现。
 - 为了让 `spec-impl` 更稳定地按设计运行，启动时请明确提到 Claude Agent Teams 和 `ccsm claude exec`。
+- 审查状态驱动运行时，应优先读取 monitor `outputs`；若其不完整，再读取 `~/.ccsm/return-packets/` 下按 run 保存的 fallback packet，而不是把原始终端文本当成最终证据。
 - 如果 Claude Agent Teams、`ccsm claude exec` 或 Claude 权限不可用，应把本次执行视为 blocked，或改用显式的 `/ccsm:team-*` 命令，不要静默 fallback 成 Codex 本地实现。
 
 ## 仓库结构

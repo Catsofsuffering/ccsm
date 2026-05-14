@@ -231,6 +231,7 @@ describe('Claude monitor asset installation', () => {
 describe('prompt installation', () => {
   const tmpDir = join(tmpdir(), `ccsm-test-prompts-${Date.now()}`)
   const codexHomeDir = join(tmpDir, '.codex-home')
+  const claudeHomeDir = join(tmpDir, '.claude-home')
 
   afterAll(async () => {
     await fs.remove(tmpDir)
@@ -240,13 +241,20 @@ describe('prompt installation', () => {
     const result = await installWorkflows(getAllCommandIds(), tmpDir, true, {
       mcpProvider: 'skip',
       codexHomeDir,
+      claudeHomeDir,
     })
     expect(result.success).toBe(true)
 
     const promptsDir = join(tmpDir, '.ccsm', 'prompts')
     expect(fs.existsSync(join(promptsDir, 'codex'))).toBe(true)
     expect(fs.existsSync(join(promptsDir, 'claude'))).toBe(true)
+    expect(fs.existsSync(join(promptsDir, 'claude', 'claude-dispatch-prompt.txt'))).toBe(true)
     expect(fs.existsSync(join(promptsDir, 'gemini'))).toBe(false)
+
+    const bridgePromptPath = join(claudeHomeDir, 'ccsm', 'claude-dispatch-prompt.txt')
+    expect(fs.existsSync(bridgePromptPath)).toBe(true)
+    const bridgePrompt = await fs.readFile(bridgePromptPath, 'utf-8')
+    expect(bridgePrompt).toContain('If `CCSM_RETURN_PACKET_PATH` is provided')
   })
 })
 

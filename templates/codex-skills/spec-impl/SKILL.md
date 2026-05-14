@@ -15,6 +15,7 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
 - The first implementation action is dispatch, not local coding.
 - Before Claude dispatch completes, Codex may inspect context and prepare the packet, but must not edit product code or start implementation locally.
 - `spec-impl` is an orchestration skill; execution workers must return implementation evidence to Codex rather than running review or mutating OpenSpec task state.
+- The maintained implementation dispatch step is the external `ccsm claude exec` launch. Host-native delegation, subagents, or worktree agents do not satisfy that step unless the packet explicitly records a compatibility fallback.
 
 **Acceptance topology**
 
@@ -37,13 +38,14 @@ The execution path (orchestrator to execution worker) and the acceptance path (d
    - required tests and checks
    - the return packet format
    - explicit worker prohibitions: do not run `spec-review`, do not edit active change `tasks.md`, do not mark tasks complete, do not archive, and do not decide acceptance readiness
+   - write that packet into the maintained dispatch prompt file at `~/.claude/ccsm/claude-dispatch-prompt.txt` before launch; the installer refreshes this bridge from the canonical scaffold at `~/.ccsm/prompts/claude/claude-dispatch-prompt.txt`
 4. Invoke Claude from Codex with a bounded prompt before doing any product-code implementation:
 
 ```bash
 ccsm claude exec --status-driven --prompt-file .claude/ccsm/claude-dispatch-prompt.txt
 ```
 
-   When `--status-driven` is used, Codex reviews structured JSON monitor result fields: `sessionStatus`, `runId`, `exitCode`, and `outputs`. The Execution Return Packet is the content expected inside monitor `outputs`, not raw terminal text.
+   When `--status-driven` is used, Codex reviews structured JSON monitor result fields: `sessionStatus`, `runId`, `exitCode`, `outputs`, and `returnPacketPath` when present. The Execution Return Packet is expected inside monitor `outputs` first; if monitor outputs are missing or incomplete, Codex must inspect the CCSM-managed persisted fallback at `returnPacketPath` instead of trusting raw terminal text.
 
    Preserve plain `ccsm claude exec` compatibility for fallback/debug flows.
 
@@ -54,13 +56,14 @@ ccsm claude exec --status-driven --prompt-file .claude/ccsm/claude-dispatch-prom
    For non-interactive Agent Teams execution, `ccsm claude exec` defaults to `--permission-mode=bypassPermissions` so Claude is not blocked by interactive approval gates during delegated execution. Override with `CCSM_CLAUDE_PERMISSION_MODE=<mode>` or pass an explicit Claude permission flag when you need a different policy.
    `ccsm monitor hooks` also ensures `~/.claude/settings.json` allows `Bash(*ccsm*)`, and `ccsm monitor install` ensures the current workspace is marked `trusted` in `~/.codex/config.toml`.
    Treat `claude -p` as the Claude-side entry contract. Do not assume a separate `claude teammates` CLI command exists.
+   Do not silently replace the maintained dispatch step with host-native delegation, paseo-style agents, or orchestrator-owned subagents. If you intentionally use a non-Claude compatibility path, record the runtime reason as an explicit fallback instead of describing it as the default `spec-impl` execution.
    Agent Teams are the preferred execution mode for `spec-impl`. Instruct Claude to use the in-session team tools (`TeamCreate`, `TaskCreate`, `SendMessage`, `Agent(team_name=..., name=...)`) after the Claude session starts whenever the packet has more than trivial scope.
    Only skip Agent Teams when the packet explicitly records why a single Claude worker is the better fit.
    Require every teammate prompt to define its mailbox return protocol explicitly: if `SendMessage` is deferred, the teammate must run `ToolSearch select:SendMessage` before its first mailbox reply, and any string reply must include both `summary` and `message`.
    Tell Claude that a teammate is not considered finished just because it goes idle or emits `SubagentStop`; the required report only counts after the team lead receives the teammate mailbox message.
    Tell Claude and every execution worker that `spec-review`, OpenSpec task checkbox updates, archive decisions, and acceptance readiness are orchestrator-owned. If a worker finds task/spec inconsistency, it must report that in the return packet instead of editing `tasks.md` or changing source-of-truth OpenSpec artifacts.
-   In non-interactive `claude -p` sessions, require Claude to emit the full return packet before shutdown, then follow the official shutdown order: gracefully shut down teammates, wait for approvals, and run cleanup exactly once.
-   If cleanup reports success or `nothing to clean up`, do not let Claude keep retrying cleanup. Treat the last complete return packet as found in the monitor `outputs` field (structured via `sessionStatus` JSON) and stop the host Claude process if it falls into the known shutdown-reminder loop.
+   In non-interactive `claude -p` sessions, require Claude to emit the full return packet before shutdown, persist that packet to the `CCSM_RETURN_PACKET_PATH` fallback file when provided, then follow the official shutdown order: gracefully shut down teammates, wait for approvals, and run cleanup exactly once.
+   If cleanup reports success or `nothing to clean up`, do not let Claude keep retrying cleanup. Treat the last complete return packet as found in monitor `outputs` first and `returnPacketPath` second, and stop the host Claude process if it falls into the known shutdown-reminder loop.
 
 5. If `ccsm claude exec` cannot be invoked, or Claude execution cannot start cleanly, stop and report the workflow as blocked instead of continuing with local implementation.
 6. Review the execution return packet in Codex.
