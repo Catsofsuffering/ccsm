@@ -22,7 +22,7 @@ Dispatch the planned change to Claude while keeping Codex as the host workflow.
 The acceptance topology defines who does what after execution returns. The roles are:
 
 - **Decision owner** (Codex): owns acceptance and archive decisions. This is never delegated to execution workers.
-- **Optional acceptance reviewer** (e.g., opencode): can appear in the workflow to provide analysis, but the orchestrator makes the final call. opencode is always additive, never the primary path.
+- **Optional middle-model agent layer** (opencode or pi): when enabled, appears in the workflow to provide pre-review analysis, but the orchestrator makes the final call. Both opencode and pi are in the same reviewer class — additive, never the primary path. The layer can be disabled; when disabled the default workflow continues without requiring any middle-model reviewer.
 - **Execution worker**: implements bounded work and returns evidence. Workers never perform acceptance, never decide archive readiness, and never run `spec-review`.
 
 The execution path (orchestrator to execution worker) and the acceptance path (decision owner and optional reviewer) are distinct. Archive is always explicit and owned by the decision owner.

@@ -15,15 +15,15 @@ const router = Router();
  * Without session/runtime/metadata evidence distinguishing orchestrator vs execution,
  * we conservatively return "unknown" rather than guessing.
  *
- * - "opencode" maps to acceptance-review when present (optional reviewer role)
+ * - "opencode" and "pi" map to acceptance-review when present (optional reviewer role)
  * - All other models return "unknown" until evidence from monitor metadata
  *   can distinguish orchestrator from execution participation
  */
 function modelToRoleFamily(model) {
   if (!model || model === "unknown" || model === "") return "unknown";
   const value = String(model).toLowerCase();
-  // opencode is an explicit acceptance-review role
-  if (value.includes("opencode")) return "acceptance-review";
+  // opencode and pi are explicit acceptance-review roles (same class)
+  if (value.includes("opencode") || value.includes("pi")) return "acceptance-review";
   // claude/codex/gpt model names alone do not provide sufficient evidence
   // to distinguish orchestrator vs execution — return unknown per spec policy
   return "unknown";
@@ -43,7 +43,7 @@ router.get("/", (_req, res) => {
   const avgEvents = stmts.avgEventsPerSession.get();
 
   // Get token breakdown by model for attribution tracking
-  // This includes opencode tokens when evidence exists
+  // This includes opencode and pi tokens when evidence exists
   const tokensByModel = stmts.getTokenTotalsByModel.all();
 
   // Aggregate tokens by role family for cost/rework efficiency analytics.
@@ -57,20 +57,23 @@ router.get("/", (_req, res) => {
     unknown: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
   };
 
-  let hasOpencodeEvidence = false;
+  let hasReviewerEvidence = false;
   for (const row of tokensByModel) {
     const family = modelToRoleFamily(row.model);
     roleTokenTotals[family].input += row.total_input || 0;
     roleTokenTotals[family].output += row.total_output || 0;
     roleTokenTotals[family].cache_read += row.total_cache_read || 0;
     roleTokenTotals[family].cache_write += row.total_cache_write || 0;
-    if (row.model && row.model.toLowerCase().includes("opencode")) {
-      hasOpencodeEvidence = true;
+    if (row.model) {
+      const modelLower = row.model.toLowerCase();
+      if (modelLower.includes("opencode") || modelLower.includes("pi")) {
+        hasReviewerEvidence = true;
+      }
     }
   }
 
   // Build tokensByModel response with explicit model names
-  // If no opencode evidence exists, indicate uncertainty rather than fabricating claims
+  // If no reviewer evidence exists, indicate uncertainty rather than fabricating claims
   const modelBreakdown = tokensByModel.map((row) => ({
     model: row.model,
     total_input: row.total_input || 0,
@@ -80,9 +83,9 @@ router.get("/", (_req, res) => {
     roleFamily: modelToRoleFamily(row.model),
   }));
 
-  // Query sessions that have opencode tokens vs those that don't
+  // Query sessions that have reviewer (opencode or pi) tokens vs those that don't
   const reviewSessionIds = db.prepare(
-    `SELECT DISTINCT session_id FROM token_usage WHERE LOWER(model) LIKE '%opencode%'`
+    `SELECT DISTINCT session_id FROM token_usage WHERE LOWER(model) LIKE '%opencode%' OR LOWER(model) LIKE '%pi%'`
   ).all().map(r => r.session_id);
 
   let reworkEfficiency;
@@ -119,11 +122,11 @@ router.get("/", (_req, res) => {
     role_attribution_capabilities: {
       orchestrator: "insufficient-evidence",
       execution: "insufficient-evidence",
-      "acceptance-review": hasOpencodeEvidence ? "evidence-based" : "no-evidence",
+      "acceptance-review": hasReviewerEvidence ? "evidence-based" : "no-evidence",
     },
-    // Explicit uncertainty indicator when no opencode evidence exists
+    // Explicit uncertainty indicator when no reviewer evidence exists
     // This prevents fabricated efficiency claims about acceptance-review participation
-    acceptance_review_evidence: hasOpencodeEvidence ? "confirmed" : "no-evidence",
+    acceptance_review_evidence: hasReviewerEvidence ? "confirmed" : "no-evidence",
     tool_usage: toolUsage,
     daily_events: dailyEvents,
     daily_sessions: dailySessions,

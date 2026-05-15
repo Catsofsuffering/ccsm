@@ -98,6 +98,11 @@ The system SHALL require Codex to retain the maintained final acceptance and arc
 - **WHEN** implementation results, reviewer findings, and verification checks all indicate success
 - **THEN** the workflow SHALL still require Codex to confirm archive readiness before archive proceeds
 
+#### Scenario: PI is configured as the middle-model reviewer
+- **WHEN** a user enables `pi` as the optional middle-model reviewer in the default workflow
+- **THEN** Codex SHALL remain the final acceptance and archive decision owner
+- **AND** `pi` SHALL contribute evidence rather than replace the Codex-owned final safety boundary
+
 ### Requirement: Default workflow preserves a single orchestration narrative
 The system SHALL present the default product narrative as "Codex orchestrates, Claude executes" across workflow entry points, command guidance, and lifecycle descriptions. The system MUST avoid presenting Claude as the default host or control plane for the primary workflow.
 

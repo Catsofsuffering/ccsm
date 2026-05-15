@@ -61,6 +61,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
   let executionHost: HostRuntime = persistedConfig?.ownership?.executionHost || (orchestrator === 'codex' ? 'claude' : 'codex')
   let acceptanceOwner: ModelType = persistedConfig?.ownership?.acceptanceOwner || orchestrator
   let acceptanceReviewer: ModelType | undefined = persistedConfig?.ownership?.acceptanceReviewer
+  let middleModelEnabled: boolean = persistedConfig?.ownership?.middleModelEnabled
+  ?? (persistedConfig?.ownership?.acceptanceReviewer ? true : false)
+  let middleModelProvider: 'opencode' | 'pi' = persistedConfig?.ownership?.middleModelProvider ?? 'opencode'
   let frontendModels: ModelType[] = persistedConfig?.routing?.frontend?.models || ['codex']
   let backendModels: ModelType[] = persistedConfig?.routing?.backend?.models || ['codex']
   const mode: CollaborationMode = 'smart'
@@ -113,18 +116,34 @@ export async function init(options: InitOptions = {}): Promise<void> {
     frontendModels = [selectedFrontend]
     backendModels = [selectedBackend]
 
-    // Optional acceptance reviewer prompt (additive, not the decision owner)
-    const { selectedAcceptanceReviewer } = await inquirer.prompt([{
-      type: 'list',
-      name: 'selectedAcceptanceReviewer',
-      message: 'Acceptance reviewer (optional, additive)',
-      choices: [
-        { name: 'None (orchestrator decides)', value: undefined },
-        { name: 'OpenCode (pre-review only)', value: 'opencode' as ModelType },
-      ],
-      default: acceptanceReviewer,
+    // Middle-model agent layer: first ask if user wants to enable it
+    const middleModelEnabledDefault = middleModelEnabled
+    const { selectedMiddleModelEnabled } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'selectedMiddleModelEnabled',
+      message: 'Enable middle-model agent layer (pre-review before acceptance)?',
+      default: middleModelEnabledDefault,
     }])
-    acceptanceReviewer = selectedAcceptanceReviewer
+    middleModelEnabled = selectedMiddleModelEnabled
+
+    // Only if enabled, ask which provider to use
+    if (middleModelEnabled) {
+      const { selectedMiddleModelProvider } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedMiddleModelProvider',
+        message: 'Middle-model provider (pre-reviewer class, not final decision owner):',
+        choices: [
+          { name: 'OpenCode', value: 'opencode' as const },
+          { name: 'Pi', value: 'pi' as const },
+        ],
+        default: middleModelProvider,
+      }])
+      middleModelProvider = selectedMiddleModelProvider
+      acceptanceReviewer = selectedMiddleModelProvider as ModelType
+    }
+    else {
+      acceptanceReviewer = undefined
+    }
   }
 
   let skipImpeccable = persistedConfig?.performance?.skipImpeccable || false
@@ -170,7 +189,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
   console.log()
   console.log(`  ${ansis.cyan(i18n.t('init:summary.orchestrator'))}  ${ansis.green(capitalize(orchestrator))} ${ansis.gray('→')} ${ansis.blue(capitalize(executionHost))}`)
   console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(capitalize(frontendModels[0]))} (Frontend) + ${ansis.blue(capitalize(backendModels[0]))} (Backend)`)
-  console.log(`  ${ansis.cyan('Acceptance Topology')}  ${ansis.green(capitalize(acceptanceOwner))} (owner) ${acceptanceReviewer ? ansis.gray('+') + ansis.yellow(' ' + capitalize(acceptanceReviewer) + ' (reviewer)') : ''}`)
+  console.log(`  ${ansis.cyan('Acceptance Topology')}  ${ansis.green(capitalize(acceptanceOwner))} (owner) ${middleModelEnabled ? ansis.gray('+') + ansis.yellow(' ' + capitalize(middleModelProvider) + ' (middle-model)') : ''}`)
+  console.log(`  ${ansis.cyan('Middle-Model Layer')}  ${middleModelEnabled ? ansis.green('enabled') : ansis.gray('disabled')}${middleModelEnabled ? ansis.gray(' (') + ansis.yellow(middleModelProvider) + ansis.gray(')') : ''}`)
   console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(selectedWorkflows.length.toString())}`)
   console.log(ansis.yellow('━'.repeat(50)))
   console.log()
@@ -238,6 +258,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
         executionHost,
         acceptanceOwner,
         acceptanceReviewer,
+        middleModelEnabled,
+        middleModelProvider,
       },
     })
 

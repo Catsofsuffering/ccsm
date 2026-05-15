@@ -142,6 +142,8 @@ export function createDefaultConfig(options: {
     acceptance?: ModelType // legacy: maps to acceptanceOwner
     acceptanceOwner?: ModelType // who makes the final acceptance decision
     acceptanceReviewer?: ModelType // optional pre-acceptance reviewer
+    middleModelEnabled?: boolean
+    middleModelProvider?: 'opencode' | 'pi'
   }
 }): CcgConfig {
   // Build ownership with backward compatibility:
@@ -149,6 +151,8 @@ export function createDefaultConfig(options: {
   // - legacy acceptance is preserved for compatibility, but does not override
   //   the v1 conservative default unless acceptanceOwner is explicitly set
   // - Default: acceptanceOwner = orchestrator, acceptanceReviewer = undefined
+  // - middleModelEnabled: inferred from presence of acceptanceReviewer for legacy compat,
+  //   or explicitly set. Default is false (layer disabled).
   const inputOwnership: NonNullable<typeof options.ownership> = options.ownership || {
     orchestrator: 'codex',
     executionHost: 'claude',
@@ -163,6 +167,13 @@ export function createDefaultConfig(options: {
     acceptanceReviewer: inputOwnership.acceptanceReviewer,
     // legacy acceptance field kept for backward compat
     acceptance: inputOwnership.acceptance || inputOwnership.acceptanceOwner || inputOwnership.orchestrator || 'codex',
+    // middleModelEnabled: infer from acceptanceReviewer presence for legacy compat,
+    // otherwise use explicit value or default to false
+    middleModelEnabled: inputOwnership.middleModelEnabled
+      ?? (inputOwnership.acceptanceReviewer ? true : false),
+    // middleModelProvider: defaults to acceptanceReviewer type if available, otherwise opencode
+    middleModelProvider: inputOwnership.middleModelProvider
+      ?? (inputOwnership.acceptanceReviewer === 'pi' ? 'pi' : 'opencode'),
   }
 
   const hostHome = options.installDir || getHostHomeDir(ownership.orchestrator)

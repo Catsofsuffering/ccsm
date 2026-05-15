@@ -90,3 +90,8 @@ The maintained command and skill surface SHALL describe acceptance topology sepa
 - **THEN** the guidance SHALL present that reviewer as an additive acceptance-path participant
 - **AND** it SHALL not imply that the reviewer replaces the default orchestrator-owned final safety boundary
 
+#### Scenario: User reads middle-model layer guidance
+- **WHEN** installation or generated workflow guidance describes the optional middle-model agent layer
+- **THEN** it SHALL explain whether that layer is enabled or disabled independently from the default execution path
+- **AND** it SHALL present supported providers such as `opencode` and `pi` as same-class optional reviewer participants
+

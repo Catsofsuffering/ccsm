@@ -3252,19 +3252,19 @@ describe("Model Attribution", () => {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
   });
 
-  it("should show uncertainty when opencode evidence is insufficient in analytics", async () => {
+  it("should show uncertainty when reviewer evidence is insufficient in analytics", async () => {
     const sessionId = `model-analytics-${Date.now()}`;
-    // Isolate from prior opencode evidence (e.g., from "should track opencode tokens in analytics when evidence exists")
-    db.prepare(`DELETE FROM token_usage WHERE LOWER(model) LIKE '%opencode%'`).run();
+    // Isolate from prior reviewer evidence (opencode or pi)
+    db.prepare(`DELETE FROM token_usage WHERE LOWER(model) LIKE '%opencode%' OR LOWER(model) LIKE '%pi%'`).run();
     stmts.insertSession.run(sessionId, "Analytics Test", "active", repoRoot, "claude-sonnet-4-6", null);
-    // Insert token_usage with claude model (no opencode)
+    // Insert token_usage with claude model (no reviewer)
     stmts.upsertTokenUsage.run(sessionId, "claude-sonnet-4-6", 300, 150, 30, 15);
 
     const res = await fetch("/api/analytics");
     assert.equal(res.status, 200);
 
-    // When no opencode evidence exists, acceptance_review_evidence should be "no-evidence"
-    assert.equal(res.body.acceptance_review_evidence, "no-evidence", "Should indicate no opencode evidence exists");
+    // When no reviewer evidence exists, acceptance_review_evidence should be "no-evidence"
+    assert.equal(res.body.acceptance_review_evidence, "no-evidence", "Should indicate no reviewer evidence exists");
     // acceptance-review role should have zero tokens
     assert.equal(res.body.tokens_by_role["acceptance-review"].input, 0, "acceptance-review should have zero input tokens without evidence");
 
@@ -3288,6 +3288,80 @@ describe("Model Attribution", () => {
     const opencodeModel = res.body.tokens_by_model.find((m) => m.model === "opencode");
     assert.ok(opencodeModel, "opencode should appear in tokens_by_model");
     assert.equal(opencodeModel.roleFamily, "acceptance-review", "opencode should be categorized as acceptance-review");
+
+    // acceptance-review role should have non-zero tokens
+    assert.ok(res.body.tokens_by_role["acceptance-review"].input > 0, "acceptance-review should have input tokens");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize pi as a valid model when evidence exists in token_usage", async () => {
+    const sessionId = `model-pi-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "Pi Session", "active", repoRoot, null, null);
+    // Insert token_usage with pi model
+    stmts.upsertTokenUsage.run(sessionId, "pi", 500, 250, 50, 25);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    // Find our session in complexity
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "pi", "Should recognize pi from token_usage");
+
+    // Clean up
+    db.prepare("DELETE FROM token_usage WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize pi from sessions.model field directly", async () => {
+    const sessionId = `model-pi-direct-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "Pi Direct", "active", repoRoot, "pi", null);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "pi", "Should recognize pi from sessions.model");
+
+    // Clean up
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should recognize pi from metadata agent hints", async () => {
+    const sessionId = `model-pi-meta-${Date.now()}`;
+    const metadata = JSON.stringify({ agent: "pi-reviewer" });
+    stmts.insertSession.run(sessionId, "Pi Meta", "active", repoRoot, null, metadata);
+
+    const res = await fetch(`/api/workflows?workspaceRoot=${encodeURIComponent(repoRoot)}`);
+    assert.equal(res.status, 200);
+
+    const session = res.body.complexity.find((s) => s.id === sessionId);
+    assert.ok(session, "Session should appear in workflow complexity");
+    assert.equal(session.model, "pi", "Should recognize pi from metadata agent hints");
+
+    // Clean up
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  });
+
+  it("should track pi tokens in analytics when evidence exists", async () => {
+    const sessionId = `model-analytics-pi-${Date.now()}`;
+    stmts.insertSession.run(sessionId, "Analytics Pi", "active", repoRoot, "pi", null);
+    stmts.upsertTokenUsage.run(sessionId, "pi", 200, 100, 20, 10);
+
+    const res = await fetch("/api/analytics");
+    assert.equal(res.status, 200);
+
+    // When pi evidence exists, acceptance_review_evidence should be "confirmed"
+    assert.equal(res.body.acceptance_review_evidence, "confirmed", "Should confirm pi evidence exists");
+
+    // Find pi in tokens_by_model
+    const piModel = res.body.tokens_by_model.find((m) => m.model === "pi");
+    assert.ok(piModel, "pi should appear in tokens_by_model");
+    assert.equal(piModel.roleFamily, "acceptance-review", "pi should be categorized as acceptance-review");
 
     // acceptance-review role should have non-zero tokens
     assert.ok(res.body.tokens_by_role["acceptance-review"].input > 0, "acceptance-review should have input tokens");

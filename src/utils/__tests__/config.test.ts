@@ -92,6 +92,8 @@ describe('createDefaultConfig', () => {
       acceptance: 'codex',
       acceptanceOwner: 'codex',
       acceptanceReviewer: undefined,
+      middleModelEnabled: false,
+      middleModelProvider: 'opencode',
     })
   })
 
@@ -110,6 +112,8 @@ describe('createDefaultConfig', () => {
       acceptance: 'claude',
       acceptanceOwner: 'claude',
       acceptanceReviewer: undefined,
+      middleModelEnabled: false,
+      middleModelProvider: 'opencode',
     })
   })
 
@@ -154,6 +158,102 @@ describe('createDefaultConfig', () => {
     })
     expect(config.ownership?.acceptanceReviewer).toBe('opencode')
     expect(config.ownership?.acceptanceOwner).toBe('codex')
+  })
+
+  it('pi can be set as acceptanceReviewer', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'pi',
+      },
+    })
+    expect(config.ownership?.acceptanceReviewer).toBe('pi')
+    expect(config.ownership?.acceptanceOwner).toBe('codex')
+  })
+
+  it('middleModelEnabled defaults to false when no reviewer config exists', () => {
+    const config = createDefaultConfig(baseOptions)
+    expect(config.ownership?.middleModelEnabled).toBe(false)
+    expect(config.ownership?.middleModelProvider).toBe('opencode')
+  })
+
+  it('middleModelEnabled inferred as true when acceptanceReviewer is present (backward compat)', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'opencode',
+      },
+    })
+    expect(config.ownership?.middleModelEnabled).toBe(true)
+    expect(config.ownership?.middleModelProvider).toBe('opencode')
+  })
+
+  it('middleModelEnabled true when acceptanceReviewer is pi', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'pi',
+      },
+    })
+    expect(config.ownership?.middleModelEnabled).toBe(true)
+    expect(config.ownership?.middleModelProvider).toBe('pi')
+  })
+
+  it('explicit middleModelEnabled overrides inferred value', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'opencode',
+        middleModelEnabled: false,
+      },
+    })
+    expect(config.ownership?.middleModelEnabled).toBe(false)
+  })
+
+  it('middleModelProvider defaults to opencode when acceptanceReviewer is opencode', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'opencode',
+      },
+    })
+    expect(config.ownership?.middleModelProvider).toBe('opencode')
+  })
+
+  it('middleModelProvider defaults to pi when acceptanceReviewer is pi', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        acceptanceReviewer: 'pi',
+      },
+    })
+    expect(config.ownership?.middleModelProvider).toBe('pi')
+  })
+
+  it('explicit middleModelProvider is respected', () => {
+    const config = createDefaultConfig({
+      ...baseOptions,
+      ownership: {
+        orchestrator: 'codex',
+        executionHost: 'claude',
+        middleModelEnabled: true,
+        middleModelProvider: 'pi',
+      },
+    })
+    expect(config.ownership?.middleModelEnabled).toBe(true)
+    expect(config.ownership?.middleModelProvider).toBe('pi')
   })
 
   it('acceptanceOwner can be different from orchestrator (future config)', () => {

@@ -30,10 +30,10 @@ The acceptance topology defines who does what after execution returns. It is dis
 **Topology roles:**
 
 - **Decision owner** (Codex): makes the final acceptance and archive decision. This is never delegated to execution workers.
-- **Optional acceptance reviewer** (e.g., opencode): provides analysis that informs the decision, but the orchestrator makes the call. opencode is always additive, never the primary path.
+- **Optional middle-model agent layer** (opencode or pi): when enabled, provides pre-review analysis that informs the decision, but the orchestrator makes the call. Both opencode and pi are in the same reviewer class — additive, never the primary path. The layer can be disabled; when disabled the default workflow continues without requiring any middle-model reviewer.
 - **Execution worker** (Claude Agent Teams): implements bounded work and returns evidence. Workers never decide acceptance, never run `spec-review`, and never archive.
 
-**Flow:** orchestrator -> execution worker -> (optional reviewer) -> acceptance decision -> archive
+**Flow:** orchestrator -> execution worker -> (optional middle-model layer) -> acceptance decision -> archive
 
 Archive is an explicit high-trust action owned by the decision owner. The execution path and the acceptance path are separate concerns.
 

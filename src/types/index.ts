@@ -1,6 +1,6 @@
 export type SupportedLang = 'zh-CN' | 'en'
 
-export type ModelType = 'codex' | 'claude' | 'opencode'
+export type ModelType = 'codex' | 'claude' | 'opencode' | 'pi'
 
 export type HostRuntime = 'codex' | 'claude'
 
@@ -8,12 +8,16 @@ export type HostRuntime = 'codex' | 'claude'
 export type WorkflowRole = 'orchestrator' | 'execution' | 'acceptance-reviewer' | 'acceptance-owner'
 
 // Represents a provider that can participate in the workflow
-export type ModelProvider = 'codex' | 'claude' | 'opencode'
+export type ModelProvider = 'codex' | 'claude' | 'opencode' | 'pi'
 
 // The acceptance topology config
 export interface AcceptanceTopology {
   acceptanceOwner: ModelType // who makes the final acceptance decision (default: orchestrator)
-  acceptanceReviewer?: ModelType // optional pre-acceptance reviewer (e.g., opencode)
+  // Optional pre-acceptance reviewer - when middleModelEnabled is true, this is the middle-model agent
+  // that performs intermediate review before the acceptanceOwner makes the final decision
+  acceptanceReviewer?: ModelType
+  middleModelEnabled?: boolean // whether the middle-model agent layer is enabled
+  middleModelProvider?: 'opencode' | 'pi' // provider for the middle-model layer when enabled
 }
 
 export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
@@ -58,7 +62,9 @@ export interface CcgConfig {
     executionHost: HostRuntime
     acceptance: ModelType // legacy: maps to acceptanceOwner for backward compat
     acceptanceOwner: ModelType // who makes the final acceptance decision
-    acceptanceReviewer?: ModelType // optional pre-acceptance reviewer (e.g., opencode)
+    acceptanceReviewer?: ModelType // optional pre-acceptance reviewer (e.g., opencode, pi)
+    middleModelEnabled?: boolean // whether the middle-model agent layer is enabled
+    middleModelProvider?: 'opencode' | 'pi' // provider for the middle-model layer
   }
   routing: ModelRouting
   workflows: {

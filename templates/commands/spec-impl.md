@@ -14,7 +14,7 @@ description: 'Codex 调度 Claude 执行，并在通过验收后决定 archive'
 验收拓扑与执行路由是不同层次的概念。拓扑角色：
 
 - **决策owner（Decision owner）**：Codex 拥有 acceptance 和 archive 的最终决策权，从不委托给执行层。
-- **可选验收reviewer（Optional reviewer）**：例如 opencode 可以作为验收视角的补充，提供分析供决策参考，但拍板权在编排侧。opencode 始终是增值项，不是主路径。
+- **可选中间模型agent层（Optional middle-model layer）**：opencode 或 pi 可以作为验收视角的补充，提供分析供决策参考，但拍板权在编排侧。opencode 和 pi 是同一类别的reviewer——都是增值项，不是主路径。该层可关闭；关闭后默认workflow继续，不需要任何中间模型reviewer。
 - **执行worker**：只负责在边界内实现并返回证据，不做 acceptance 判断，不跑 `spec-review`，不决定 archive。
 
 Archive 是显式的高信任操作，由决策owner持有。执行路径（orchestrator → execution worker）和验收路径（decision owner、可选reviewer）是分开的。
